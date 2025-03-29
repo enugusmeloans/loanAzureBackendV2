@@ -8,6 +8,8 @@ import MSSQLStore from 'connect-mssql-v2';
 import dotenv from 'dotenv';
 import './auth.js'; // Import authentication strategies
 
+import { ensureContainerExists } from './azureBlobService.js'; // Import Azure Blob Service logic
+
 dotenv.config();
 
 const config = {
@@ -25,6 +27,7 @@ const config = {
 // Import App routes
 import routes from './routes.js';
 import authRoutes from './authRoutes.js'; // Use import instead of require
+import blobroutes from './blobRoutes.js'; // Import routes for Azure Blob Service
 
 const port = process.env.PORT || 3000;
 
@@ -38,7 +41,7 @@ app.use(cors({
 
 // Middleware to set headers explicitly
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', ['http://localhost:5500','http://localhost:5173']);
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5500');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
@@ -112,6 +115,16 @@ app.use('/routes', routes);
 // app.use('*', (_, res) => {
 //   res.redirect('/api-docs');
 // });
+
+// Ensure the Azure Blob Storage container exists
+// Ensure the Azure Blob Storage container exists before starting the server
+ensureContainerExists().catch((error) => {
+  console.error("Error ensuring container exists:", error);
+  process.exit(1); // Exit the process if container creation fails
+});
+
+// Connect Azure Blob Service routes
+app.use('/blob', blobroutes);
 
 // Start the server
 app.listen(port, () => {
