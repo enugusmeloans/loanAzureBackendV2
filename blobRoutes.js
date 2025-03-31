@@ -141,7 +141,7 @@ router.delete("/delete-multiple", isAuthenticated, async (req, res) => {
 });
 
 // Route to upload or update document images and store URLs in the database
-router.post("/upload-documents", isAuthenticated, upload.fields([
+router.post("/upload-documents", upload.fields([
     { name: "idCard", maxCount: 1 },
     { name: "businessCertificate", maxCount: 1 }
 ]), async (req, res) => {
@@ -155,6 +155,26 @@ router.post("/upload-documents", isAuthenticated, upload.fields([
         }
 
         const poolConnection = await sql.connect(process.env.DATABASE_URI);
+
+        // Check if the application's loanStatus is "Accepted1"
+        const applicationResult = await poolConnection.request()
+            .input("applicationId", sql.Int, applicationId)
+            .query(`
+                SELECT loanStatus 
+                FROM dbo.Applications 
+                WHERE applicationId = @applicationId
+            `);
+
+        if (applicationResult.recordset.length === 0) {
+            poolConnection.close();
+            return res.status(404).json({ error: "Application not found" });
+        }
+
+        const { loanStatus } = applicationResult.recordset[0];
+        if (loanStatus !== "Accepted1") {
+            poolConnection.close();
+            return res.status(400).json({ error: "Application is ineligible for document upload" });
+        }
 
         // Check if the application already exists in the database
         const existingRecord = await poolConnection.request()
@@ -190,6 +210,16 @@ router.post("/upload-documents", isAuthenticated, upload.fields([
             const idCardSasUrl = await generateSasUrl(idCardUrl);
             const businessCertificateSasUrl = await generateSasUrl(businessCertificateUrl);
 
+            // Update loanStatus to "Pending"
+            await poolConnection.request()
+                .input("applicationId", sql.Int, applicationId)
+                .input("loanStatus", sql.VarChar, "Pending")
+                .query(`
+                    UPDATE dbo.Applications
+                    SET loanStatus = @loanStatus
+                    WHERE applicationId = @applicationId
+                `);
+
             res.json({
                 message: "Documents updated successfully",
                 urls: {
@@ -215,6 +245,16 @@ router.post("/upload-documents", isAuthenticated, upload.fields([
             const idCardSasUrl = await generateSasUrl(idCardUrl);
             const businessCertificateSasUrl = await generateSasUrl(businessCertificateUrl);
 
+            // Update loanStatus to "Pending"
+            await poolConnection.request()
+                .input("applicationId", sql.Int, applicationId)
+                .input("loanStatus", sql.VarChar, "Pending")
+                .query(`
+                    UPDATE dbo.Applications
+                    SET loanStatus = @loanStatus
+                    WHERE applicationId = @applicationId
+                `);
+
             res.json({
                 message: "Documents uploaded and stored successfully",
                 urls: {
@@ -232,7 +272,7 @@ router.post("/upload-documents", isAuthenticated, upload.fields([
 });
 
 // Route to get the images (documents) of an application
-router.get("/application-images/:applicationId", isAuthenticated, async (req, res) => {
+router.get("/application-images/:applicationId", async (req, res) => {
     try {
         const { applicationId } = req.params;
 
@@ -272,6 +312,52 @@ router.get("/application-images/:applicationId", isAuthenticated, async (req, re
     } catch (error) {
         console.error("Fetch Application Images Error:", error);
         res.status(500).json({ error: "Failed to fetch application images" });
+    }
+});
+
+// Dummy function to check NIN
+function checkNIN(number) {
+    // For now, always return true
+    return true;
+}
+
+// Dummy function to verify CAC
+function verifyCAC(number) {
+    // For now, always return true
+    return true;
+}
+
+// Endpoint to check NIN
+router.post("/check-nin", isAuthenticated, async (req, res) => {
+    try {
+        const { number } = req.body;
+
+        if (!number) {
+            return res.status(400).json({ error: "NIN number is required" });
+        }
+
+        const result = checkNIN(number);
+        res.json({ message: "NIN check completed", result });
+    } catch (error) {
+        console.error("Check NIN Error:", error);
+        res.status(500).json({ error: "Failed to check NIN" });
+    }
+});
+
+// Endpoint to verify CAC
+router.post("/verify-cac", isAuthenticated, async (req, res) => {
+    try {
+        const { number } = req.body;
+
+        if (!number) {
+            return res.status(400).json({ error: "CAC number is required" });
+        }
+
+        const result = verifyCAC(number);
+        res.json({ message: "CAC verification completed", result });
+    } catch (error) {
+        console.error("Verify CAC Error:", error);
+        res.status(500).json({ error: "Failed to verify CAC" });
     }
 });
 
