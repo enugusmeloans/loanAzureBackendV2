@@ -5,6 +5,7 @@ import sql from 'mssql';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import fetch from "node-fetch"; // Import fetch for making HTTP requests
+import { sendEmail } from './emailService.js'; // Import the email service
 
 dotenv.config();
 
@@ -105,6 +106,7 @@ async function evaluateLoanEligibility(applicationData) {
 //--------------------------------------------------------------------
 //routes
 
+// Endpoint to get all users 
 router.get("/get-all-users",isAuthenticated, isAdmin, async (req, res) => {
     try {
         let records = [];
@@ -221,8 +223,8 @@ router.post('/is-admin', isAuthenticated, async (req, res) => {
     }
 });
 
-// Endpoint to submit an application - untested yet
-router.post('/submit-application', isAuthenticated, async (req, res) => {
+// Endpoint to submit an application - updated to remove CAC from PersonalInfo
+router.post('/submit-application', async (req, res) => {
     const { userEmail, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo, dateSubmitted } = req.body;
 
     try {
@@ -280,21 +282,20 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 
         const applicationId = applicationResult.recordset[0].applicationId;
 
-        // Insert into PersonalInfo table
+        // Insert into PersonalInfo table (removed CAC)
         await transaction.request()
             .input('applicationId', sql.Int, applicationId)
             .input('fullName', sql.VarChar, personalInfo.fullName)
             .input('dob', sql.Date, personalInfo.dob)
             .input('gender', sql.VarChar, personalInfo.gender)
             .input('email', sql.VarChar, personalInfo.email)
-            .input('phone', sql.Int, personalInfo.phone)
+            .input('phone', sql.BigInt, personalInfo.phone)
             .input('residentAddress', sql.VarChar, personalInfo.residentAddress)
             .input('LGA', sql.VarChar, personalInfo.LGA)
             .input('state', sql.VarChar, personalInfo.state)
-            .input('CAC', sql.Int, personalInfo.CAC)
-            .input('BVN', sql.Int, personalInfo.BVN)
-            .input('NIN', sql.Int, personalInfo.NIN)
-            .query('INSERT INTO dbo.PersonalInfo (applicationId, fullName, dob, gender, email, phone, residentAddress, LGA, state, CAC, BVN, NIN) VALUES (@applicationId, @fullName, @dob, @gender, @email, @phone, @residentAddress, @LGA, @state, @CAC, @BVN, @NIN)');
+            .input('BVN', sql.BigInt, personalInfo.BVN)
+            .input('NIN', sql.BigInt, personalInfo.NIN)
+            .query('INSERT INTO dbo.PersonalInfo (applicationId, fullName, dob, gender, email, phone, residentAddress, LGA, state, BVN, NIN) VALUES (@applicationId, @fullName, @dob, @gender, @email, @phone, @residentAddress, @LGA, @state, @BVN, @NIN)');
 
         // Insert into BusinessInfo table
         await transaction.request()
@@ -412,7 +413,6 @@ router.get('/get-application-details/:applicationId', isAuthenticated, isAdmin, 
                     PersonalInfo.residentAddress,
                     PersonalInfo.LGA AS personalLGA,
                     PersonalInfo.state AS personalState,
-                    PersonalInfo.CAC,
                     PersonalInfo.BVN,
                     PersonalInfo.NIN,
                     BusinessInfo.businessName,
@@ -460,7 +460,7 @@ router.get('/get-application-details/:applicationId', isAuthenticated, isAdmin, 
 // Endpoint for admin to accept an application
 router.post('/accept-application', isAuthenticated, isAdmin, async (req, res) => {
     try {
-        const { applicationId } = req.body;
+        const { applicationId, emailBody } = req.body;
 
         // Validate applicationId
         if (!applicationId) {
@@ -473,8 +473,9 @@ router.post('/accept-application', isAuthenticated, isAdmin, async (req, res) =>
         const applicationResult = await poolConnection.request()
             .input('applicationId', sql.Int, applicationId)
             .query(`
-                SELECT loanStatus 
+                SELECT loanStatus, userEmail 
                 FROM dbo.Applications 
+                INNER JOIN dbo.Users ON dbo.Applications.userId = dbo.Users.userId
                 WHERE applicationId = @applicationId
             `);
 
@@ -483,7 +484,7 @@ router.post('/accept-application', isAuthenticated, isAdmin, async (req, res) =>
             return res.status(404).json({ error: "Application not found" });
         }
 
-        const { loanStatus } = applicationResult.recordset[0];
+        const { loanStatus, userEmail } = applicationResult.recordset[0];
 
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending") {
@@ -502,7 +503,11 @@ router.post('/accept-application', isAuthenticated, isAdmin, async (req, res) =>
             `);
 
         poolConnection.close();
-        res.status(200).json({ message: "Application accepted successfully", applicationId });
+
+        // Send email to the user
+        await sendEmail(userEmail, "Application Accepted", emailBody);
+
+        res.status(200).json({ message: "Application accepted successfully and email sent", applicationId });
     } catch (err) {
         console.error("Error accepting application:", err.message);
         res.status(500).json({ error: "Failed to accept application" });
@@ -512,7 +517,7 @@ router.post('/accept-application', isAuthenticated, isAdmin, async (req, res) =>
 // Endpoint for admin to reject an application
 router.post('/reject-application', isAuthenticated, isAdmin, async (req, res) => {
     try {
-        const { applicationId } = req.body;
+        const { applicationId, emailBody } = req.body;
 
         // Validate applicationId
         if (!applicationId) {
@@ -525,8 +530,9 @@ router.post('/reject-application', isAuthenticated, isAdmin, async (req, res) =>
         const applicationResult = await poolConnection.request()
             .input('applicationId', sql.Int, applicationId)
             .query(`
-                SELECT loanStatus 
+                SELECT loanStatus, userEmail 
                 FROM dbo.Applications 
+                INNER JOIN dbo.Users ON dbo.Applications.userId = dbo.Users.userId
                 WHERE applicationId = @applicationId
             `);
 
@@ -535,7 +541,7 @@ router.post('/reject-application', isAuthenticated, isAdmin, async (req, res) =>
             return res.status(404).json({ error: "Application not found" });
         }
 
-        const { loanStatus } = applicationResult.recordset[0];
+        const { loanStatus, userEmail } = applicationResult.recordset[0];
 
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending") {
@@ -554,7 +560,11 @@ router.post('/reject-application', isAuthenticated, isAdmin, async (req, res) =>
             `);
 
         poolConnection.close();
-        res.status(200).json({ message: "Application rejected successfully", applicationId });
+
+        // Send email to the user
+        await sendEmail(userEmail, "Application Rejected", emailBody);
+
+        res.status(200).json({ message: "Application rejected successfully and email sent", applicationId });
     } catch (err) {
         console.error("Error rejecting application:", err.message);
         res.status(500).json({ error: "Failed to reject application" });
@@ -615,18 +625,17 @@ router.post('/resubmit-application', isAuthenticated, async (req, res) => {
             .input('dob', sql.Date, personalInfo.dob)
             .input('gender', sql.VarChar, personalInfo.gender)
             .input('email', sql.VarChar, personalInfo.email)
-            .input('phone', sql.Int, personalInfo.phone)
+            .input('phone', sql.BigInt, personalInfo.phone)
             .input('residentAddress', sql.VarChar, personalInfo.residentAddress)
             .input('LGA', sql.VarChar, personalInfo.LGA)
             .input('state', sql.VarChar, personalInfo.state)
-            .input('CAC', sql.Int, personalInfo.CAC)
-            .input('BVN', sql.Int, personalInfo.BVN)
-            .input('NIN', sql.Int, personalInfo.NIN)
+            .input('BVN', sql.BigInt, personalInfo.BVN)
+            .input('NIN', sql.BigInt, personalInfo.NIN)
             .query(`
                 UPDATE dbo.PersonalInfo 
                 SET fullName = @fullName, dob = @dob, gender = @gender, email = @email, 
                     phone = @phone, residentAddress = @residentAddress, LGA = @LGA, 
-                    state = @state, CAC = @CAC, BVN = @BVN, NIN = @NIN 
+                    state = @state, BVN = @BVN, NIN = @NIN 
                 WHERE applicationId = @applicationId
             `);
 
@@ -714,7 +723,7 @@ router.post('/resubmit-application', isAuthenticated, async (req, res) => {
 // Endpoint for admin to request resubmission of an application
 router.post('/request-resubmission', isAuthenticated, isAdmin, async (req, res) => {
     try {
-        const { applicationId } = req.body;
+        const { applicationId, emailBody } = req.body;
 
         // Validate applicationId
         if (!applicationId) {
@@ -727,8 +736,9 @@ router.post('/request-resubmission', isAuthenticated, isAdmin, async (req, res) 
         const applicationResult = await poolConnection.request()
             .input('applicationId', sql.Int, applicationId)
             .query(`
-                SELECT loanStatus 
+                SELECT loanStatus, userEmail 
                 FROM dbo.Applications 
+                INNER JOIN dbo.Users ON dbo.Applications.userId = dbo.Users.userId
                 WHERE applicationId = @applicationId
             `);
 
@@ -737,7 +747,7 @@ router.post('/request-resubmission', isAuthenticated, isAdmin, async (req, res) 
             return res.status(404).json({ error: "Application not found" });
         }
 
-        const { loanStatus } = applicationResult.recordset[0];
+        const { loanStatus, userEmail } = applicationResult.recordset[0];
 
         // Ensure the application is not already in "Resubmit" status
         if (loanStatus === "Resubmit") {
@@ -756,7 +766,11 @@ router.post('/request-resubmission', isAuthenticated, isAdmin, async (req, res) 
             `);
 
         poolConnection.close();
-        res.status(200).json({ message: "Resubmission requested successfully", applicationId });
+
+        // Send email to the user
+        await sendEmail(userEmail, "Resubmission Requested", emailBody);
+
+        res.status(200).json({ message: "Resubmission requested successfully and email sent", applicationId });
     } catch (err) {
         console.error("Error requesting resubmission:", err.message);
         res.status(500).json({ error: "Failed to request resubmission" });

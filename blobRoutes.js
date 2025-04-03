@@ -146,10 +146,11 @@ router.post("/upload-documents", upload.fields([
     { name: "businessCertificate", maxCount: 1 }
 ]), async (req, res) => {
     try {
-        const { applicationId } = req.body;
+        const { applicationId, CAC } = req.body;
 
-        // Validate applicationId and files
+        // Validate applicationId, CAC, and files
         if (!applicationId) return res.status(400).json({ error: "Application ID is required" });
+        if (!CAC) return res.status(400).json({ error: "CAC is required" });
         if (!req.files || !req.files.idCard || !req.files.businessCertificate) {
             return res.status(400).json({ error: "All document images are required" });
         }
@@ -191,7 +192,7 @@ router.post("/upload-documents", upload.fields([
             if (previousImages.IdCardLink) await deleteImage(previousImages.IdCardLink.split("/").pop());
             if (previousImages.businessCertificateLink) await deleteImage(previousImages.businessCertificateLink.split("/").pop());
 
-            // Update the existing record with new image URLs
+            // Update the existing record with new image URLs and CAC
             const idCardUrl = await uploadImage(req.files.idCard[0]);
             const businessCertificateUrl = await uploadImage(req.files.businessCertificate[0]);
 
@@ -199,10 +200,12 @@ router.post("/upload-documents", upload.fields([
                 .input("applicationId", sql.Int, applicationId)
                 .input("idCardLink", sql.VarChar, idCardUrl)
                 .input("businessCertificateLink", sql.VarChar, businessCertificateUrl)
+                .input("CAC", sql.BigInt, CAC)
                 .query(`
                     UPDATE dbo.UploadDocuments
                     SET IdCardLink = @idCardLink,
-                        businessCertificateLink = @businessCertificateLink
+                        businessCertificateLink = @businessCertificateLink,
+                        CAC = @CAC
                     WHERE applicationId = @applicationId
                 `);
 
@@ -236,9 +239,10 @@ router.post("/upload-documents", upload.fields([
                 .input("applicationId", sql.Int, applicationId)
                 .input("idCardLink", sql.VarChar, idCardUrl)
                 .input("businessCertificateLink", sql.VarChar, businessCertificateUrl)
+                .input("CAC", sql.VarChar, CAC)
                 .query(`
-                    INSERT INTO dbo.UploadDocuments (applicationId, IdCardLink, businessCertificateLink)
-                    VALUES (@applicationId, @idCardLink, @businessCertificateLink)
+                    INSERT INTO dbo.UploadDocuments (applicationId, IdCardLink, businessCertificateLink, CAC)
+                    VALUES (@applicationId, @idCardLink, @businessCertificateLink, @CAC)
                 `);
 
             // Generate SAS tokens for the new images
