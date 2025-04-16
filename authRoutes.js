@@ -116,12 +116,37 @@ router.get('/google', passport.authenticate('google', { scope: ['https://www.goo
 //   successRedirect: '/', // Redirect to home page on successful Google login
 //   failureRedirect: '/login'
 // }));
+
 router.get('/google/callback', passport.authenticate('google', {
   successRedirect: 'http://localhost:5500/goodlogin.html', // Redirect to home page on successful Google login
-  failureRedirect: 'http://localhost:5500/failogin.html' // Redirect to login page on failed Google login
+  failureRedirect: 'http://localhost:5500/' // Redirect to login page on failed Google login
 }));
 
+// router.get('/google/callback', (req, res, next) => {
+//   passport.authenticate('google', (err, user, info) => {
+//     if (err) {
+//       return next(err);
+//     }
+//     if (!user) {
+//       return res.status(400).send('User not found or authentication failed');
+//     }
+//     req.logIn(user, (err) => {
+//       if (err) {
+//         return next(err);
+//       }
+//       req.session.save((err) => {
+//         if (err) {
+//           return next(err);
+//         }
+//         return res.status(200).send('Logged in with Google');
+//       });
+//     });
+//   })(req, res, next);
+// });
+
+
 // Logout route
+
 router.get('/logout', (req, res, next) => {
   console.log('Logging out user:', req.user);
   req.logout((err) => {

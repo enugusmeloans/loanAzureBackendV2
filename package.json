@@ -20,6 +20,7 @@
     "loanazurebackendv2": "file:",
     "mssql": "^11.0.1",
     "multer": "^1.4.5-lts.2",
+    "node-schedule": "^2.1.1",
     "nodemailer": "^6.10.0",
     "passport": "^0.7.0",
     "passport-google-oauth": "^2.0.0",

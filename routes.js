@@ -777,4 +777,131 @@ router.post('/request-resubmission', isAuthenticated, isAdmin, async (req, res) 
     }
 });
 
+// Endpoint to insert or update a user's record in ExtraUserDetails - note to self - to test later
+router.post('/extra-user-details', isAuthenticated, async (req, res) => {
+    try {
+        const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin } = req.body;
+
+        // Check if all required fields are provided
+        if (!userId || !firstName || !lastName || !otherName || !gender || !phoneNumber || !contactEmail || !address || !LGA || !stateOfOrigin) {
+            return res.status(400).json({ error: "All fields are required" });
+        }
+
+        const poolConnection = await sql.connect(config);
+
+        // Check if the record exists in ExtraUserDetails
+        const existingRecordResult = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query('SELECT * FROM dbo.ExtraUserDetails WHERE userId = @userId');
+
+        const existingRecord = existingRecordResult.recordset[0];
+
+        if (existingRecord) {
+            // Update the record in ExtraUserDetails
+            await poolConnection.request()
+                .input('userId', sql.Int, userId)
+                .input('firstName', sql.VarChar, firstName)
+                .input('lastName', sql.VarChar, lastName)
+                .input('otherName', sql.VarChar, otherName)
+                .input('gender', sql.VarChar, gender)
+                .input('phoneNumber', sql.BigInt, phoneNumber)
+                .input('contactEmail', sql.VarChar, contactEmail)
+                .input('address', sql.VarChar, address)
+                .input('LGA', sql.VarChar, LGA)
+                .input('stateOfOrigin', sql.VarChar, stateOfOrigin)
+                .query(`
+                    UPDATE dbo.ExtraUserDetails
+                    SET firstName = @firstName, lastName = @lastName, otherName = @otherName,
+                        gender = @gender, phoneNumber = @phoneNumber, contactEmail = @contactEmail,
+                        address = @address, LGA = @LGA, stateOfOrigin = @stateOfOrigin
+                    WHERE userId = @userId
+                `);
+
+            // Update userName in Users table
+            const updatedUserName = `${firstName} ${lastName}`;
+            await poolConnection.request()
+                .input('userId', sql.Int, userId)
+                .input('userName', sql.VarChar, updatedUserName)
+                .query('UPDATE dbo.Users SET userName = @userName WHERE userId = @userId');
+        } else {
+            // Insert a new record into ExtraUserDetails
+            await poolConnection.request()
+                .input('userId', sql.Int, userId)
+                .input('firstName', sql.VarChar, firstName)
+                .input('lastName', sql.VarChar, lastName)
+                .input('otherName', sql.VarChar, otherName)
+                .input('gender', sql.VarChar, gender)
+                .input('phoneNumber', sql.BigInt, phoneNumber)
+                .input('contactEmail', sql.VarChar, contactEmail)
+                .input('address', sql.VarChar, address)
+                .input('LGA', sql.VarChar, LGA)
+                .input('stateOfOrigin', sql.VarChar, stateOfOrigin)
+                .query(`
+                    INSERT INTO dbo.ExtraUserDetails (userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin)
+                    VALUES (@userId, @firstName, @lastName, @otherName, @gender, @phoneNumber, @contactEmail, @address, @LGA, @stateOfOrigin)
+                `);
+
+            // Update userName in Users table
+            const updatedUserName = `${firstName} ${lastName}`;
+            await poolConnection.request()
+                .input('userId', sql.Int, userId)
+                .input('userName', sql.VarChar, updatedUserName)
+                .query('UPDATE dbo.Users SET userName = @userName WHERE userId = @userId');
+        }
+
+        poolConnection.close();
+        res.status(200).json({ message: "User details updated successfully" });
+    } catch (err) {
+        console.error("Error updating user details:", err.message);
+        res.status(500).json({ error: "Failed to update user details" });
+    }
+});
+
+// Endpoint to get all details of a user from ExtraUserDetails and Users tables- to test later
+router.get('/get-user-details/:userId', isAuthenticated, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Validate userId
+        if (!userId) {
+            return res.status(400).json({ error: "User ID is required" });
+        }
+
+        const poolConnection = await sql.connect(config);
+
+        // Query to fetch user details from ExtraUserDetails and Users tables
+        const result = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT 
+                    ExtraUserDetails.firstName,
+                    ExtraUserDetails.lastName,
+                    ExtraUserDetails.otherName,
+                    ExtraUserDetails.gender,
+                    ExtraUserDetails.phoneNumber,
+                    ExtraUserDetails.contactEmail,
+                    ExtraUserDetails.address,
+                    ExtraUserDetails.LGA,
+                    ExtraUserDetails.stateOfOrigin,
+                    Users.userName,
+                    Users.userEmail
+                FROM dbo.ExtraUserDetails
+                INNER JOIN dbo.Users ON ExtraUserDetails.userId = Users.userId
+                WHERE ExtraUserDetails.userId = @userId
+            `);
+
+        poolConnection.close();
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Return the fetched user details
+        res.status(200).json({ userDetails: result.recordset[0] });
+    } catch (err) {
+        console.error("Error fetching user details:", err.message);
+        res.status(500).json({ error: "Failed to fetch user details" });
+    }
+});
+
 export default router;
