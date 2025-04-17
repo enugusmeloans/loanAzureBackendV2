@@ -43,7 +43,7 @@ async function isAdmin(req, res, next) {
 }
 
 // Route to upload a single image
-router.post("/upload", isAuthenticated, upload.single("image"), async (req, res) => {
+router.post("/upload", upload.single("image"), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "No file uploaded" }); // Validate file existence
         const imageUrl = await uploadImage(req.file); // Upload the image
@@ -55,7 +55,7 @@ router.post("/upload", isAuthenticated, upload.single("image"), async (req, res)
 });
 
 // Route to upload multiple images - up to 10
-router.post("/upload-multiple", isAuthenticated, upload.array("images", 10), async (req, res) => {
+router.post("/upload-multiple", upload.array("images", 10), async (req, res) => {
     try {
         if (!req.files || req.files.length === 0) return res.status(400).json({ error: "No files uploaded" }); // Validate files
 
@@ -72,7 +72,7 @@ router.post("/upload-multiple", isAuthenticated, upload.array("images", 10), asy
 });
 
 // Route to fetch all images
-router.get("/images", isAuthenticated, async (req, res) => {
+router.get("/images", async (req, res) => {
     try {
         const images = await listImages(); // Fetch all images
         res.json({ images }); // Respond with the list of image URLs
@@ -83,7 +83,7 @@ router.get("/images", isAuthenticated, async (req, res) => {
 });
 
 // Route to fetch a single image with a SAS token
-router.get("/image/:blobName", isAuthenticated, async (req, res) => {
+router.get("/image/:blobName", async (req, res) => {
     try {
         const blobName = req.params.blobName; // Get the blob name from the route parameter
         const now = new Date();
@@ -111,7 +111,7 @@ router.get("/image/:blobName", isAuthenticated, async (req, res) => {
 });
 
 // Route to delete a single image
-router.delete("/delete/:blobName", isAuthenticated, async (req, res) => {
+router.delete("/delete/:blobName", async (req, res) => {
     try {
         const blobName = req.params.blobName; // Get the blob name from the route parameter
         await deleteImage(blobName); // Delete the image
@@ -123,7 +123,7 @@ router.delete("/delete/:blobName", isAuthenticated, async (req, res) => {
 });
 
 // Route to delete multiple images
-router.delete("/delete-multiple", isAuthenticated, async (req, res) => {
+router.delete("/delete-multiple", async (req, res) => {
     try {
         const { blobNames } = req.body; // Expecting an array of blob names in the request body
         if (!blobNames || !Array.isArray(blobNames) || blobNames.length === 0) {
@@ -332,7 +332,7 @@ function verifyCAC(number) {
 }
 
 // Endpoint to check NIN
-router.post("/check-nin", isAuthenticated, async (req, res) => {
+router.post("/check-nin", async (req, res) => {
     try {
         const { number } = req.body;
 
@@ -349,7 +349,7 @@ router.post("/check-nin", isAuthenticated, async (req, res) => {
 });
 
 // Endpoint to verify CAC
-router.post("/verify-cac", isAuthenticated, async (req, res) => {
+router.post("/verify-cac", async (req, res) => {
     try {
         const { number } = req.body;
 

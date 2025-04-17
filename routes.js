@@ -107,7 +107,7 @@ async function evaluateLoanEligibility(applicationData) {
 //routes
 
 // Endpoint to get all users 
-router.get("/get-all-users",isAuthenticated, isAdmin, async (req, res) => {
+router.get("/get-all-users", async (req, res) => {
     try {
         let records = [];
         var poolConnection = await sql.connect(config);
@@ -132,7 +132,7 @@ router.get("/get-all-users",isAuthenticated, isAdmin, async (req, res) => {
 });
 
 // Endpoint to promote a user to admin
-router.post('/promote', isAuthenticated, isAdmin, async (req, res) => {
+router.post('/promote', async (req, res) => {
     const { email } = req.body;
     try {
         const poolConnection = await sql.connect(config);
@@ -169,7 +169,7 @@ router.post('/promote', isAuthenticated, isAdmin, async (req, res) => {
 });
 
 // Endpoint to demote an admin to user
-router.post('/demote', isAuthenticated, isAdmin, async (req, res) => {
+router.post('/demote', async (req, res) => {
     const { email } = req.body;
     try {
         const poolConnection = await sql.connect(config);
@@ -200,7 +200,7 @@ router.post('/demote', isAuthenticated, isAdmin, async (req, res) => {
 });
 
 // Endpoint to check if a user is an admin - untested yet
-router.post('/is-admin', isAuthenticated, async (req, res) => {
+router.post('/is-admin', async (req, res) => {
     const { email } = req.body;
     try {
         const poolConnection = await sql.connect(config);
@@ -354,14 +354,15 @@ router.post('/submit-application', async (req, res) => {
     }
 });
 
-// Endpoint to get details of all applications -tpm
-router.get('/get-all-applications', isAuthenticated, isAdmin, async (req, res) => {
+// Endpoint to get details of all applications - dont postman yet till after deploy testing
+router.get('/get-all-applications', async (req, res) => {
     try {
         const poolConnection = await sql.connect(config);
 
         // Query to fetch the required details of all applications
         const result = await poolConnection.request().query(`
             SELECT 
+                Applications.applicationId,
                 Applications.dateSubmitted,
                 BusinessInfo.businessName,
                 PersonalInfo.fullName AS applicantName,
@@ -384,7 +385,7 @@ router.get('/get-all-applications', isAuthenticated, isAdmin, async (req, res) =
 });
 
 // Endpoint to get every single detail of an application by applicationId
-router.get('/get-application-details/:applicationId', isAuthenticated, isAdmin, async (req, res) => {
+router.get('/get-application-details/:applicationId', async (req, res) => {
     try {
         const { applicationId } = req.params;
 
@@ -457,8 +458,8 @@ router.get('/get-application-details/:applicationId', isAuthenticated, isAdmin, 
     }
 });
 
-// Endpoint for admin to accept an application
-router.post('/accept-application', isAuthenticated, isAdmin, async (req, res) => {
+// Endpoint for admin to accept an application - postman later
+router.post('/accept-application', async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
 
@@ -515,7 +516,7 @@ router.post('/accept-application', isAuthenticated, isAdmin, async (req, res) =>
 });
 
 // Endpoint for admin to reject an application
-router.post('/reject-application', isAuthenticated, isAdmin, async (req, res) => {
+router.post('/reject-application', async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
 
@@ -572,7 +573,7 @@ router.post('/reject-application', isAuthenticated, isAdmin, async (req, res) =>
 });
 
 // Endpoint to resubmit an application
-router.post('/resubmit-application', isAuthenticated, async (req, res) => {
+router.post('/resubmit-application', async (req, res) => {
     try {
         const { applicationId, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo } = req.body;
 
@@ -721,7 +722,7 @@ router.post('/resubmit-application', isAuthenticated, async (req, res) => {
 });
 
 // Endpoint for admin to request resubmission of an application
-router.post('/request-resubmission', isAuthenticated, isAdmin, async (req, res) => {
+router.post('/request-resubmission', async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
 
@@ -778,7 +779,7 @@ router.post('/request-resubmission', isAuthenticated, isAdmin, async (req, res) 
 });
 
 // Endpoint to insert or update a user's record in ExtraUserDetails - note to self - to test later
-router.post('/extra-user-details', isAuthenticated, async (req, res) => {
+router.post('/extra-user-details', async (req, res) => {
     try {
         const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin } = req.body;
 
@@ -858,7 +859,7 @@ router.post('/extra-user-details', isAuthenticated, async (req, res) => {
 });
 
 // Endpoint to get all details of a user from ExtraUserDetails and Users tables- to test later
-router.get('/get-user-details/:userId', isAuthenticated, async (req, res) => {
+router.get('/get-user-details/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
 

@@ -28,6 +28,9 @@ const config = {
 import routes from './routes.js';
 import authRoutes from './authRoutes.js'; // Use import instead of require
 import blobroutes from './blobRoutes.js'; // Import routes for Azure Blob Service
+import preset from './passwordResetRoutes.js' // Import password reset routes
+import pdfRoutes from './pdfRoutes.js'; // Import PDF generation routes
+import excelRoutes from './excelRoutes.js'; // Import Excel generation routes
 
 const port = process.env.PORT || 3000;
 
@@ -125,6 +128,15 @@ ensureContainerExists().catch((error) => {
 
 // Connect Azure Blob Service routes
 app.use('/blob', blobroutes);
+
+// Connect password reset routes
+app.use('/reset', preset);
+
+// Connect PDF generation routes
+app.use('/pdf', pdfRoutes);
+
+// Connect Excel generation routes
+app.use('/excel', excelRoutes);
 
 // Start the server
 app.listen(port, () => {
