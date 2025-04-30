@@ -23,13 +23,13 @@ function isAuthenticated(req, res, next) {
     if (req.isAuthenticated()) {
         return next();
     }
-    res.status(401).send('Unauthorized');
+    res.status(401).json({ error: 'Unauthorized' });
 }
 
 // Middleware to check if user is an admin
 async function isAdmin(req, res, next) {
     if (!req.user || !req.user.adminId) {
-        return res.status(403).send('Forbidden');
+        return res.status(403).json({ error: 'Forbidden' });
     }
 
     try {
@@ -44,11 +44,11 @@ async function isAdmin(req, res, next) {
         if (admin && admin.userId === req.user.userId) {
             return next();
         } else {
-            return res.status(403).send('Forbidden');
+            return res.status(403).json({ error: 'Forbidden' });
         }
     } catch (err) {
         console.error(err.message);
-        return res.status(500).send('Internal Server Error');
+        return res.status(500).json({ error: 'Internal Server Error' });
     }
 }
 
@@ -127,7 +127,7 @@ router.get("/get-all-users", async (req, res) => {
         res.json(records);
     } catch (err) {
         console.error(err.message);
-        res.status(500).send(err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -143,7 +143,7 @@ router.post('/promote', async (req, res) => {
         const user = result.recordset[0];
         if (!user) {
             poolConnection.close();
-            return res.status(404).send('User not found');
+            return res.status(404).json({ error: 'User not found' });
         }
 
         const adminId = crypto.randomBytes(3).toString('hex');
@@ -161,10 +161,10 @@ router.post('/promote', async (req, res) => {
             .query('INSERT INTO dbo.Admins (adminId, userId, fullName, email) VALUES (@adminId, @userId, @fullName, @email)');
 
         poolConnection.close();
-        res.status(200).send('User promoted to admin');
+        res.status(200).json({ message: 'User promoted to admin' });
     } catch (err) {
         console.error(err.message);
-        res.status(500).send('Internal Server Error');
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
@@ -180,7 +180,7 @@ router.post('/demote', async (req, res) => {
         const user = result.recordset[0];
         if (!user) {
             poolConnection.close();
-            return res.status(404).send('User not found');
+            return res.status(404).json({ error: 'User not found' });
         }
 
         await poolConnection.request()
@@ -192,10 +192,10 @@ router.post('/demote', async (req, res) => {
             .query('UPDATE dbo.Users SET adminId = NULL WHERE userId = @userId');
 
         poolConnection.close();
-        res.status(200).send('Admin demoted to user');
+        res.status(200).json({ message: 'Admin demoted to user' });
     } catch (err) {
         console.error(err.message);
-        res.status(500).send('Internal Server Error');
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
@@ -211,7 +211,7 @@ router.post('/is-admin', async (req, res) => {
         const user = result.recordset[0];
         if (!user) {
             poolConnection.close();
-            return res.status(404).send('User not found');
+            return res.status(404).json({ error: 'User not found' });
         }
 
         const isAdmin = user.adminId !== null;
@@ -219,7 +219,7 @@ router.post('/is-admin', async (req, res) => {
         res.status(200).json({ isAdmin });
     } catch (err) {
         console.error(err.message);
-        res.status(500).send('Internal Server Error');
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
