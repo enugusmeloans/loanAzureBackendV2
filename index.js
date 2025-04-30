@@ -13,10 +13,10 @@ import { ensureContainerExists } from './azureBlobService.js'; // Import Azure B
 dotenv.config();
 
 const config = {
-  user: process.env.DB_USER || "master",
-  password: process.env.DB_PASSWORD || "OPgames142",
-  server: process.env.DB_SERVER || "webgamedbserver.database.windows.net",
-  database: process.env.DB_DATABASE || "webgame",
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  server: process.env.DB_SERVER,
+  database: process.env.DB_DATABASE,
   options: {
     encrypt: true, // Use encryption
     enableArithAbort: true
@@ -44,7 +44,7 @@ app.use(cors({
 
 // Middleware to set headers explicitly
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5500');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
@@ -61,21 +61,20 @@ store.on('error', (err) => {
   console.error('Session store error:', err);
 });
 
-// Session middleware
+// Configure session middleware
 app.use(session({
-  secret: 'your_secret_key',
+  secret: process.env.SESSION_SECRET || 'default_secret', // Use a secure secret
   resave: false,
   saveUninitialized: false,
-  store: store,
-  cookie: { 
-    secure: false, 
-    httpOnly: true, 
-    maxAge: 24 * 60 * 60 * 1000 
-  } // 1-day expiry
+  store: store, // Use MSSQLStore for session storage
+  cookie: {
+    secure: false, // Set to true if using HTTPS
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 1 day
+  }
 }));
 
-// Initialize passport
-app.use(passport.initialize());
+// Initialize passport session
 app.use(passport.session());
 
 // Middleware to check if user is authenticated
@@ -91,8 +90,8 @@ app.use(passport.session());
 
 console.log('Starting server...');
 app.use((req, res, next) => {
-  console.log('Session ID:', req.session.id);
-  console.log('Session Data:', req.session);
+  console.log("Hello from the middleware!");
+  // console.log('Session Data:', req.session);
   next();
 });
 

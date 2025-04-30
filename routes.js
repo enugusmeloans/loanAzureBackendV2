@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import fetch from "node-fetch"; // Import fetch for making HTTP requests
 import { sendEmail } from './emailService.js'; // Import the email service
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -16,14 +17,18 @@ const config = process.env.DATABASE_URI;
 //--------------------------------------------------------------
 //middlewares
 
-// Middleware to check if user is authenticated
+// Middleware to check if user is authenticated using JWT
 function isAuthenticated(req, res, next) {
-    console.log('Session:', req.session);
-    console.log('User:', req.user);
-    if (req.isAuthenticated()) {
-        return next();
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (err) {
+        res.status(401).json({ error: 'Invalid token' });
     }
-    res.status(401).json({ error: 'Unauthorized' });
 }
 
 // Middleware to check if user is an admin
@@ -113,12 +118,11 @@ router.get("/get-all-users", async (req, res) => {
         var poolConnection = await sql.connect(config);
 
         console.log("Reading rows from the Table...");
-        var resultSet = await poolConnection.request().query(`SELECT * FROM dbo.Users`);
+        var resultSet = await poolConnection.request().query(`SELECT userId, userName, userEmail, adminId FROM dbo.Users`);
 
         console.log("Printing results...");
         resultSet.recordset.forEach((record) => {
             records.push(record);
-            console.log(records);
         });
 
         // close connection only when we're certain application is finished
@@ -906,12 +910,32 @@ router.get('/get-user-details/:userId', async (req, res) => {
 });
 
 // Endpoint to get the current logged-in user
-router.get('/current-user', (req, res) => {
-    if (req.isAuthenticated() && req.user) {
-        const { userPassword, ...userWithoutPassword } = req.user; // Exclude sensitive data like password
-        return res.status(200).json({ user: userWithoutPassword });
+router.get('/current-user', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ error: 'Unauthorized' });
     }
-    res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const poolConnection = await sql.connect(config);
+
+        const result = await poolConnection.request()
+            .input('userId', sql.Int, decoded.userId)
+            .query('SELECT userId, userName, userEmail, adminId FROM dbo.Users WHERE userId = @userId');
+
+        poolConnection.close();
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const user = result.recordset[0];
+        res.status(200).json({ user });
+    } catch (err) {
+        console.error('Error fetching user details:', err.message);
+        res.status(500).json({ error: 'Failed to fetch user details' });
+    }
 });
 
 export default router;

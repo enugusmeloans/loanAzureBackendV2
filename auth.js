@@ -6,13 +6,14 @@ import { OAuth2Strategy as GoogleStrategy } from 'passport-google-oauth';
 import dotenv from 'dotenv';
 import sql from 'mssql';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 const config = process.env.DATABASE_URI;
 
 // Debug statements to check environment variables
-console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
-console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
+// console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
+// console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
 
 // Configure the local strategy
 passport.use(new LocalStrategy(
@@ -105,33 +106,20 @@ passport.use(new GoogleStrategy(
   }
 ));
 
-// Serialize user to store in session
+// Serialize user into the session
 passport.serializeUser((user, done) => {
-  console.log('Serializing user:', user);
-  done(null, user.userId); // Ensure userId is used
+    done(null, user.userId); // Store the userId in the JWT payload
 });
 
-// Deserialize user from session
 passport.deserializeUser(async (id, done) => {
-  console.log('Deserializing user with id:', id);
-  if (!id) {
-    console.error('No ID found in session!');
-    return done(null, false);
-  }
-
-  try {
-    console.log('Deserializing user(inner) with id:', id);
-    const poolConnection = await sql.connect(config);
-    const result = await poolConnection.request()
-      .input('id', sql.Int, id)
-      .query('SELECT * FROM dbo.Users WHERE userId = @id');
-
-    const user = result.recordset[0];
-    poolConnection.close();
-    console.log('Deserialized user:', user);
-    done(null, user);
-  } catch (err) {
-    console.log('Error in deserialization:', err);
-    done(err);
-  }
+    // Removed session-based deserialization as JWT will handle user validation
+    done(null, false); // No session-based deserialization
 });
+
+// Function to generate a JWT token
+function generateToken(user) {
+    const payload = { userId: user.userId, email: user.userEmail, adminId: user.adminId };
+    return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
+}
+
+export { generateToken };
