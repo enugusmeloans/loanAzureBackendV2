@@ -905,4 +905,13 @@ router.get('/get-user-details/:userId', async (req, res) => {
     }
 });
 
+// Endpoint to get the current logged-in user
+router.get('/current-user', (req, res) => {
+    if (req.isAuthenticated() && req.user) {
+        const { userPassword, ...userWithoutPassword } = req.user; // Exclude sensitive data like password
+        return res.status(200).json({ user: userWithoutPassword });
+    }
+    res.status(401).json({ error: 'Unauthorized' });
+});
+
 export default router;
