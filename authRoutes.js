@@ -24,7 +24,7 @@ router.post('/login', (req, res, next) => {
     }
     if (!user) {
       // return res.redirect('http://localhost:5500/failogin.html');
-      return res.status(400).send('User not found');
+      return res.status(400).json({ message: 'User not found' });
     }
     req.logIn(user, (err) => {
       if (err) {
@@ -35,7 +35,9 @@ router.post('/login', (req, res, next) => {
           return next(err);
         }
         // return res.redirect('http://localhost:5500/goodlogin.html');
-        return res.status(200).send('Logged in');
+        //send user data without password
+        const { userPassword, ...userWithoutPassword } = user;
+        return res.status(200).json({ message: 'Logged in', user: userWithoutPassword });
       });
     });
   })(req, res, next);
@@ -160,7 +162,7 @@ router.get('/logout', (req, res, next) => {
       console.log('User logged out successfully');
       // res.redirect('/'); // Redirect to login page on successful logout
       // res.redirect('http://localhost:5500/index.html'); // Redirect to login page on successful logout
-      res.status(200).send('Logged out');
+      res.status(200).json({ message: 'Logged out' });
     });
   });
 });
