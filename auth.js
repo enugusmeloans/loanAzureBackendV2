@@ -108,12 +108,11 @@ passport.use(new GoogleStrategy(
 
 // Serialize user into the session
 passport.serializeUser((user, done) => {
-    done(null, user.userId); // Store the userId in the JWT payload
+  done(null, user.userId); // Store the userId in the JWT payload
 });
 
-passport.deserializeUser(async (id, done) => {
-    // Removed session-based deserialization as JWT will handle user validation
-    done(null, false); // No session-based deserialization
+passport.deserializeUser((id, done) => {
+  done(null, false); // No session-based deserialization
 });
 
 // Function to generate a JWT token

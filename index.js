@@ -3,10 +3,9 @@
 import express from 'express';
 import cors from 'cors';
 import passport from 'passport';
-import session from 'express-session';
-import MSSQLStore from 'connect-mssql-v2';
 import dotenv from 'dotenv';
 import './auth.js'; // Import authentication strategies
+import jwt from 'jsonwebtoken';
 
 import { ensureContainerExists } from './azureBlobService.js'; // Import Azure Blob Service logic
 
@@ -55,38 +54,21 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const store = new MSSQLStore(config);
-
-store.on('error', (err) => {
-  console.error('Session store error:', err);
-});
-
-// Configure session middleware
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'default_secret', // Use a secure secret
-  resave: false,
-  saveUninitialized: false,
-  store: store, // Use MSSQLStore for session storage
-  cookie: {
-    secure: false, // Set to true if using HTTPS
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 1 day
+// Middleware to check if user is authenticated using JWT
+function isAuthenticated(req, res, next) {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
-}));
 
-// Initialize passport session
-app.use(passport.session());
-
-// Middleware to check if user is authenticated
-// function isAuthenticated(req, res, next) {
-//   console.log('Session:', req.session);
-//   console.log('User:', req.user);
-//   if (req.isAuthenticated()) {
-//     return next();
-//   }
-//   // res.redirect('http://localhost:5500/index.html'); // Redirect here if not authenticated, typically to login page
-//   res.status(401).send('Unauthorized');
-// }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+}
 
 console.log('Starting server...');
 app.use((req, res, next) => {
@@ -112,7 +94,7 @@ app.get('/session-check', (req, res) => {
 });
 
 // app.use('/routes', isAuthenticated, routes);
-app.use('/routes', routes);
+app.use('/routes', isAuthenticated, routes);
 
 // app.use('*', (_, res) => {
 //   res.redirect('/api-docs');

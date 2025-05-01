@@ -48,7 +48,7 @@ router.post('/signup', async (req, res) => {
           .query('UPDATE dbo.Users SET userPassword = @password WHERE userEmail = @email');
       } else {
         poolConnection.close();
-        return res.status(400).send('User already exists');
+        return res.status(400).json({ message: 'User already exists' });
       }
     } else {
       await poolConnection.request()
@@ -65,7 +65,7 @@ router.post('/signup', async (req, res) => {
     res.status(200).json({ message: 'Signed up', user: userWithoutPassword, token });
   } catch (err) {
     console.error(err.message);
-    res.status(500).send(err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
