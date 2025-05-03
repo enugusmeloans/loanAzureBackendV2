@@ -128,10 +128,10 @@ router.get("/get-all-users", async (req, res) => {
         // close connection only when we're certain application is finished
         poolConnection.close();
 
-        res.json(records);
+        res.status(200).json({ success: true, message: 'Users fetched successfully', data: { users: records } });
     } catch (err) {
         console.error(err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: 'Error fetching users', data: { error: err.message } });
     }
 });
 
@@ -147,7 +147,7 @@ router.post('/promote', async (req, res) => {
         const user = result.recordset[0];
         if (!user) {
             poolConnection.close();
-            return res.status(404).json({ error: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         const adminId = crypto.randomBytes(3).toString('hex');
@@ -165,10 +165,10 @@ router.post('/promote', async (req, res) => {
             .query('INSERT INTO dbo.Admins (adminId, userId, fullName, email) VALUES (@adminId, @userId, @fullName, @email)');
 
         poolConnection.close();
-        res.status(200).json({ message: 'User promoted to admin' });
+        res.status(200).json({ success: true, message: 'User promoted to admin', data: { adminId } });
     } catch (err) {
         console.error(err.message);
-        res.status(500).json({ error: 'Internal Server Error' });
+        res.status(500).json({ success: false, message: 'Error promoting user', data: { error: err.message } });
     }
 });
 
@@ -228,7 +228,7 @@ router.post('/is-admin', async (req, res) => {
 });
 
 // Endpoint to submit an application - updated to remove CAC from PersonalInfo
-router.post('/submit-application', async (req, res) => {
+router.post('/submit-application', isAuthenticated, async (req, res) => {
     const { userEmail, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo, dateSubmitted } = req.body;
 
     try {
@@ -260,7 +260,7 @@ router.post('/submit-application', async (req, res) => {
             threeMonthsLater.setMonth(threeMonthsLater.getMonth() + 3);
 
             if (currentApplicationDate < threeMonthsLater) {
-                return res.status(400).json({ error: "Please try again after three months." });
+                return res.status(400).json({ success: false, message: "You have a similar application submitted within the last three months." });
             }
         }
 
@@ -344,17 +344,37 @@ router.post('/submit-application', async (req, res) => {
             .query('INSERT INTO dbo.RegulatoryInfo (applicationId, regulatoryChallengeQuestion) VALUES (@applicationId, @regulatoryChallengeQuestion)');
 
         await transaction.commit();
+
+        // Fetch the details of the submitted application
+        const applicationSubmittedResult = await poolConnection.request()
+            .input('applicationId', sql.Int, applicationId)
+            .query(`
+                SELECT 
+                    Applications.applicationId,
+                    Applications.dateSubmitted,
+                    Applications.loanStatus,
+                    BusinessInfo.businessName,
+                    BusinessInfo.businessIndustry,
+                    PersonalInfo.fullName AS applicantName
+                FROM dbo.Applications
+                INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+                INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+                WHERE Applications.applicationId = @applicationId
+            `);
+
+        const applicationSResult = applicationSubmittedResult.recordset[0];
+
         poolConnection.close();
 
         // Check the loan status and respond accordingly
         if (loanStatus === "Rejected1") {
-            return res.status(200).json({ message: "Application submitted but rejected based on eligibility criteria", status: "Rejected", applicationId });
+            return res.status(200).json({ success: true, message: "Application submitted but rejected based on eligibility criteria", data:{ status: "Rejected", ...applicationSResult} });
         }
 
-        res.status(200).json({ message: 'Application submitted successfully', status: "Accepted", applicationId });
+        res.status(200).json({ success: true, message: 'Application submitted successfully', data:{status: "Accepted", ...applicationSResult} });
     } catch (err) {
         console.error(err.message);
-        res.status(500).json({ error: 'Internal Server Error' });
+        res.status(500).json({ success: false, message: 'Error submitting application', data:{ error: err.message } });
     }
 });
 
@@ -389,13 +409,13 @@ router.get('/get-all-applications', async (req, res) => {
 });
 
 // Endpoint to get every single detail of an application by applicationId
-router.get('/get-application-details/:applicationId', async (req, res) => {
+router.get('/get-application-details/:applicationId',isAuthenticated, async (req, res) => {
     try {
         const { applicationId } = req.params;
 
         // Validate applicationId
         if (!applicationId) {
-            return res.status(400).json({ error: "Application ID is required" });
+            return res.status(400).json({ success: false, message: "Application ID is required" });
         }
 
         const poolConnection = await sql.connect(config);
@@ -599,7 +619,7 @@ router.post('/resubmit-application', async (req, res) => {
 
         if (applicationResult.recordset.length === 0) {
             poolConnection.close();
-            return res.status(404).json({ error: "Application not found" });
+            return res.status(404).json({ success: false, message: "Application not found" });
         }
 
         const { loanStatus } = applicationResult.recordset[0];
@@ -607,7 +627,7 @@ router.post('/resubmit-application', async (req, res) => {
         // Ensure the application is currently "Resubmit"
         if (loanStatus !== "Resubmit") {
             poolConnection.close();
-            return res.status(400).json({ error: "Only applications with a 'Resubmit' status can be resubmitted" });
+            return res.status(400).json({ success: false, message: "Only applications with a 'Resubmit' status can be resubmitted" });
         }
 
         const transaction = new sql.Transaction(poolConnection);
@@ -716,12 +736,36 @@ router.post('/resubmit-application', async (req, res) => {
             `);
 
         await transaction.commit();
+
+        // Fetch the details of the resubmitted application
+        const applicationSubmittedResult = await poolConnection.request()
+            .input('applicationId', sql.Int, applicationId)
+            .query(`
+                SELECT 
+                    Applications.applicationId,
+                    Applications.dateSubmitted,
+                    Applications.loanStatus,
+                    BusinessInfo.businessName,
+                    BusinessInfo.businessIndustry,
+                    PersonalInfo.fullName AS applicantName
+                FROM dbo.Applications
+                INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+                INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+                WHERE Applications.applicationId = @applicationId
+            `);
+
+        const applicationSResult = applicationSubmittedResult.recordset[0];
+
         poolConnection.close();
 
-        res.status(200).json({ message: "Application resubmitted successfully", applicationId });
+        res.status(200).json({
+            success: true,
+            message: 'Application resubmitted successfully',
+            data: { application: applicationSResult }
+        });
     } catch (err) {
-        console.error("Error resubmitting application:", err.message);
-        res.status(500).json({ error: "Failed to resubmit application" });
+        console.error('Error resubmitting application:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to resubmit application', data: { error: err.message } });
     }
 });
 
@@ -732,7 +776,7 @@ router.post('/request-resubmission', async (req, res) => {
 
         // Validate applicationId
         if (!applicationId) {
-            return res.status(400).json({ error: "Application ID is required" });
+            return res.status(400).json({ success: false, error: "Application ID is required" });
         }
 
         const poolConnection = await sql.connect(config);
@@ -749,7 +793,7 @@ router.post('/request-resubmission', async (req, res) => {
 
         if (applicationResult.recordset.length === 0) {
             poolConnection.close();
-            return res.status(404).json({ error: "Application not found" });
+            return res.status(404).json({ success: false, error: "Application not found" });
         }
 
         const { loanStatus, userEmail } = applicationResult.recordset[0];
@@ -757,7 +801,7 @@ router.post('/request-resubmission', async (req, res) => {
         // Ensure the application is not already in "Resubmit" status
         if (loanStatus === "Resubmit") {
             poolConnection.close();
-            return res.status(400).json({ error: "Application is already in 'Resubmit' status" });
+            return res.status(400).json({ success: false, error: "Application is already in 'Resubmit' status" });
         }
 
         // Update the loanStatus to "Resubmit"
@@ -775,21 +819,21 @@ router.post('/request-resubmission', async (req, res) => {
         // Send email to the user
         await sendEmail(userEmail, "Resubmission Requested", emailBody);
 
-        res.status(200).json({ message: "Resubmission requested successfully and email sent", applicationId });
+        res.status(200).json({ success: true, message: "Resubmission requested successfully and email sent", data: {applicationId} });
     } catch (err) {
         console.error("Error requesting resubmission:", err.message);
-        res.status(500).json({ error: "Failed to request resubmission" });
+        res.status(500).json({ success: false, error: "Failed to request resubmission" });
     }
 });
 
 // Endpoint to insert or update a user's record in ExtraUserDetails - note to self - to test later
 router.post('/extra-user-details', async (req, res) => {
     try {
-        const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin } = req.body;
+        const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob } = req.body;
 
         // Check if all required fields are provided
-        if (!userId || !firstName || !lastName || !otherName || !gender || !phoneNumber || !contactEmail || !address || !LGA || !stateOfOrigin) {
-            return res.status(400).json({ error: "All fields are required" });
+        if (!userId || !firstName || !lastName || !otherName || !gender || !phoneNumber || !contactEmail || !address || !LGA || !stateOfOrigin || !dob) {
+            return res.status(400).json({ success: false, error: "All fields are required" });
         }
 
         const poolConnection = await sql.connect(config);
@@ -814,11 +858,12 @@ router.post('/extra-user-details', async (req, res) => {
                 .input('address', sql.VarChar, address)
                 .input('LGA', sql.VarChar, LGA)
                 .input('stateOfOrigin', sql.VarChar, stateOfOrigin)
+                .input('dob', sql.Date, dob)
                 .query(`
                     UPDATE dbo.ExtraUserDetails
                     SET firstName = @firstName, lastName = @lastName, otherName = @otherName,
                         gender = @gender, phoneNumber = @phoneNumber, contactEmail = @contactEmail,
-                        address = @address, LGA = @LGA, stateOfOrigin = @stateOfOrigin
+                        address = @address, LGA = @LGA, stateOfOrigin = @stateOfOrigin, dob = @dob
                     WHERE userId = @userId
                 `);
 
@@ -855,10 +900,10 @@ router.post('/extra-user-details', async (req, res) => {
         }
 
         poolConnection.close();
-        res.status(200).json({ message: "User details updated successfully" });
+        res.status(200).json({ success: true, message: "User details updated successfully" });
     } catch (err) {
         console.error("Error updating user details:", err.message);
-        res.status(500).json({ error: "Failed to update user details" });
+        res.status(500).json({ success: false, error: "Failed to update user details" });
     }
 });
 
@@ -869,7 +914,7 @@ router.get('/get-user-details/:userId', async (req, res) => {
 
         // Validate userId
         if (!userId) {
-            return res.status(400).json({ error: "User ID is required" });
+            return res.status(400).json({ success: false, error: "User ID is required" });
         }
 
         const poolConnection = await sql.connect(config);
@@ -888,6 +933,7 @@ router.get('/get-user-details/:userId', async (req, res) => {
                     ExtraUserDetails.address,
                     ExtraUserDetails.LGA,
                     ExtraUserDetails.stateOfOrigin,
+                    ExtraUserDetails.dob,
                     Users.userName,
                     Users.userEmail
                 FROM dbo.ExtraUserDetails
@@ -898,14 +944,14 @@ router.get('/get-user-details/:userId', async (req, res) => {
         poolConnection.close();
 
         if (result.recordset.length === 0) {
-            return res.status(404).json({ error: "User not found" });
+            return res.status(404).json({ success: false, error: "User not found" });
         }
 
         // Return the fetched user details
         res.status(200).json({ userDetails: result.recordset[0] });
     } catch (err) {
         console.error("Error fetching user details:", err.message);
-        res.status(500).json({ error: "Failed to fetch user details" });
+        res.status(500).json({ success: false, error: "Failed to fetch user details" });
     }
 });
 
@@ -913,7 +959,7 @@ router.get('/get-user-details/:userId', async (req, res) => {
 router.get('/current-user', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json({ success:false, message: 'Unauthorized' });
     }
 
     try {
@@ -927,14 +973,98 @@ router.get('/current-user', async (req, res) => {
         poolConnection.close();
 
         if (result.recordset.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' }); 
         }
 
         const user = result.recordset[0];
-        res.status(200).json({ user });
+        res.status(200).json({ success: true, message: 'User details fetched successfully', data: user });
     } catch (err) {
         console.error('Error fetching user details:', err.message);
-        res.status(500).json({ error: 'Failed to fetch user details' });
+        res.status(500).json({ success: false, message: 'Failed to fetch user details' });
+    }
+});
+
+// Endpoint to get all applications made by the logged-in user
+router.get('/user-applications', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+        const userId = decoded.userId; // Extract the userId from the decoded token
+
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to fetch all applications made by the logged-in user
+        const result = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT 
+                    Applications.applicationId,
+                    Applications.dateSubmitted,
+                    Applications.loanStatus,
+                    BusinessInfo.businessName,
+                    BusinessInfo.businessIndustry,
+                    PersonalInfo.fullName AS applicantName
+                FROM dbo.Applications
+                INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+                INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+                WHERE Applications.userId = @userId
+            `);
+
+        poolConnection.close(); // Close the database connection
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ success: false, message: 'No applications found for the user', data: {} }); // Return not found if no applications exist
+        }
+
+        res.status(200).json({ success: true, message: 'Applications retrieved successfully', data: { applications: result.recordset } }); // Return the applications
+    } catch (err) {
+        console.error('Error fetching user applications:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+    }
+});
+
+// Endpoint to get application statistics for the logged-in user
+router.get('/application-stats', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+        const userId = decoded.userId; // Extract the userId from the decoded token
+
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to get application statistics for the logged-in user
+        const result = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT 
+                    COUNT(*) AS totalApplications,
+                    SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
+                    SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
+                    SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
+                FROM dbo.Applications
+                WHERE userId = @userId
+            `);
+
+        poolConnection.close(); // Close the database connection
+
+        const stats = result.recordset[0]; // Extract the statistics from the query result
+
+        res.status(200).json({
+            success: true,
+            message: 'Application statistics retrieved successfully',
+            data: stats
+        }); // Return the statistics
+    } catch (err) {
+        console.error('Error fetching application statistics:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
     }
 });
 

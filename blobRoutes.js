@@ -54,10 +54,10 @@ router.post("/upload", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" }); // Validate file existence
     const imageUrl = await uploadImage(req.file); // Upload the image
-    res.json({ message: "Upload successful", imageUrl }); // Respond with the image URL
+    res.json({ success:true, message: "Upload successful", data:{ imageUrl } }); // Respond with the image URL
   } catch (error) {
     console.error("Upload Error:", error);
-    res.status(500).json({ error: "Upload failed" });
+    res.status(500).json({ success: false, message: "Upload failed" });
   }
 });
 
@@ -113,7 +113,7 @@ router.get("/image/:blobName", async (req, res) => {
     res.json({ imageUrl }); // Respond with the image URL
   } catch (error) {
     console.error("Fetch Error:", error);
-    res.status(500).json({ error: "Could not fetch image" });
+    res.status(500).json({ success:false, message: "Could not fetch image" });
   }
 });
 
@@ -159,7 +159,7 @@ router.post("/upload-documents", upload.fields([
     if (!applicationId) return res.status(400).json({ error: "Application ID is required" });
     if (!CAC) return res.status(400).json({ error: "CAC is required" });
     if (!req.files || !req.files.idCard || !req.files.businessCertificate) {
-      return res.status(400).json({ error: "All document images are required" });
+      return res.status(400).json({ success: false, message: "All document images are required" });
     }
 
     const poolConnection = await sql.connect(process.env.DATABASE_URI);
@@ -175,13 +175,13 @@ router.post("/upload-documents", upload.fields([
 
     if (applicationResult.recordset.length === 0) {
       poolConnection.close();
-      return res.status(404).json({ error: "Application not found" });
+      return res.status(404).json({ success: false, message: "Application not found" });
     }
 
     const { loanStatus } = applicationResult.recordset[0];
     if (loanStatus !== "Accepted1") {
       poolConnection.close();
-      return res.status(400).json({ error: "Application is ineligible for document upload" });
+      return res.status(400).json({ success: false, message: "Application is ineligible for document upload" });
     }
 
     // Check if the application already exists in the database
@@ -231,8 +231,9 @@ router.post("/upload-documents", upload.fields([
                 `);
 
       res.json({
+        success: true,
         message: "Documents updated successfully",
-        urls: {
+        data: {
           idCardUrl: idCardSasUrl,
           businessCertificateUrl: businessCertificateSasUrl
         }
@@ -267,8 +268,9 @@ router.post("/upload-documents", upload.fields([
                 `);
 
       res.json({
+        success: true,
         message: "Documents uploaded and stored successfully",
-        urls: {
+        data: {
           idCardUrl: idCardSasUrl,
           businessCertificateUrl: businessCertificateSasUrl
         }
@@ -278,7 +280,7 @@ router.post("/upload-documents", upload.fields([
     poolConnection.close();
   } catch (error) {
     console.error("Upload Documents Error:", error);
-    res.status(500).json({ error: "Failed to upload and store documents" });
+    res.status(500).json({ success: false, message: "Failed to upload documents" });
   }
 });
 
@@ -288,7 +290,7 @@ router.get("/application-images/:applicationId", async (req, res) => {
     const { applicationId } = req.params;
 
     // Validate applicationId
-    if (!applicationId) return res.status(400).json({ error: "Application ID is required" });
+    if (!applicationId) return res.status(400).json({ success: false, message: "Application ID is required" }); 
 
     const poolConnection = await sql.connect(process.env.DATABASE_URI);
 
@@ -304,7 +306,7 @@ router.get("/application-images/:applicationId", async (req, res) => {
     poolConnection.close();
 
     if (result.recordset.length === 0) {
-      return res.status(404).json({ error: "No images found for the given application ID" });
+      return res.status(404).json({ success: false, message: "No images found for this application" });
     }
 
     const { IdCardLink, businessCertificateLink } = result.recordset[0];
@@ -314,15 +316,16 @@ router.get("/application-images/:applicationId", async (req, res) => {
     const businessCertificateSasUrl = businessCertificateLink ? await generateSasUrl(businessCertificateLink) : null;
 
     res.json({
+        success: true,
       message: "Application images retrieved successfully",
-      urls: {
+      data: {
         idCardUrl: idCardSasUrl,
         businessCertificateUrl: businessCertificateSasUrl
       }
     });
   } catch (error) {
     console.error("Fetch Application Images Error:", error);
-    res.status(500).json({ error: "Failed to fetch application images" });
+    res.status(500).json({ success: false, message: "Failed to fetch application images" });
   }
 });
 
@@ -341,34 +344,34 @@ function verifyCAC(number) {
 // Endpoint to check NIN
 router.post("/check-nin", async (req, res) => {
   try {
-    const { number } = req.body;
+    const { number, username } = req.body;
 
-    if (!number) {
-      return res.status(400).json({ error: "NIN number is required" });
+    if (!number || !username) {
+      return res.status(400).json({ success: false, message: "NIN number and user name are required" });
     }
 
     const result = checkNIN(number);
-    res.json({ message: "NIN check completed", result });
+    res.json({ success: true, message: "NIN check completed", data: { result } });
   } catch (error) {
     console.error("Check NIN Error:", error);
-    res.status(500).json({ error: "Failed to check NIN" });
+    res.status(500).json({ success: false, message: "Failed to check NIN" });
   }
 });
 
 // Endpoint to verify CAC
 router.post("/verify-cac", async (req, res) => {
   try {
-    const { number } = req.body;
+    const { number, businessname } = req.body;
 
-    if (!number) {
-      return res.status(400).json({ error: "CAC number is required" });
+    if (!number || !businessname) {
+      return res.status(400).json({ success: false, message: "CAC number and business name are required" });
     }
 
     const result = verifyCAC(number);
-    res.json({ message: "CAC verification completed", result });
+    res.json({ success:true, message: "CAC verification completed", data: { result } });
   } catch (error) {
     console.error("Verify CAC Error:", error);
-    res.status(500).json({ error: "Failed to verify CAC" });
+    res.status(500).json({ success:false, message: "Failed to verify CAC" });
   }
 });
 

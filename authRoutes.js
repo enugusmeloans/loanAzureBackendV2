@@ -20,11 +20,11 @@ router.post('/login', (req, res, next) => {
       return next(err);
     }
     if (!user) {
-      return res.status(400).json({ message: 'User not found' });
+      return res.status(400).json({ success:false, message: 'User not found' });
     }
     const { userPassword, ...userWithoutPassword } = user;
     const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '1h' });
-    return res.status(200).json({ message: 'Logged in', user: userWithoutPassword, token });
+    return res.status(200).json({ success:true, message: 'Logged in', data: { user: userWithoutPassword, token } });
   })(req, res, next);
 });
 
@@ -48,7 +48,7 @@ router.post('/signup', async (req, res) => {
           .query('UPDATE dbo.Users SET userPassword = @password WHERE userEmail = @email');
       } else {
         poolConnection.close();
-        return res.status(400).json({ message: 'User already exists' });
+        return res.status(400).json({ success: false, message: 'User already exists' });
       }
     } else {
       await poolConnection.request()
@@ -62,10 +62,10 @@ router.post('/signup', async (req, res) => {
     const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '1h' });
 
     poolConnection.close();
-    res.status(200).json({ message: 'Signed up', user: userWithoutPassword, token });
+    res.status(200).json({ success:true, message: 'Signed up', data:{ user: userWithoutPassword, token } });
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success:false, message: 'Error Signing Up', data:{ error: err.message } });
   }
 });
 
