@@ -51,7 +51,7 @@ app.use((req, res, next) => {
 });
 
 // Middleware for parsing JSON and urlencoded form data
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Middleware to check if user is authenticated using JWT
@@ -86,11 +86,12 @@ app.get('/login', (req, res) => {
 });
 
 app.get('/session-test', (req, res) => {
-  req.session.test = 'Session is working!';
+  // req.session.test = 'Session is working!';
   res.send('Session set, now refresh!');
 });
 app.get('/session-check', (req, res) => {
-  res.send(req.session.test || 'Session not found!');
+  // res.send(req.session.test || 'Session not found!');
+  res.send('Session not found!');
 });
 
 // app.use('/routes', isAuthenticated, routes);

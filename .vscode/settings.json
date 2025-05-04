@@ -1,4 +1,8 @@
 {
     "appService.defaultWebAppToDeploy": "undefined/subscriptions/eb7d71ab-544c-4957-82d0-fede0d115993/resourceGroups/webgameresourcegroup/providers/Microsoft.Web/sites/loanbackend",
-    "appService.deploySubpath": "."
+    "appService.deploySubpath": ".",
+    "appService.zipIgnorePattern": [
+        "node_modules{,/**}",
+        ".vscode{,/**}"
+    ]
 }

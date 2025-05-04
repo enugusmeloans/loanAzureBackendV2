@@ -156,8 +156,8 @@ router.post("/upload-documents", upload.fields([
     const { applicationId, CAC } = req.body;
 
     // Validate applicationId, CAC, and files
-    if (!applicationId) return res.status(400).json({ error: "Application ID is required" });
-    if (!CAC) return res.status(400).json({ error: "CAC is required" });
+    if (!applicationId) return res.status(400).json({ success: false, message: "Application ID is required" });
+    if (!CAC) return res.status(400).json({ success: false, message: "CAC is required" });
     if (!req.files || !req.files.idCard || !req.files.businessCertificate) {
       return res.status(400).json({ success: false, message: "All document images are required" });
     }
@@ -271,6 +271,7 @@ router.post("/upload-documents", upload.fields([
         success: true,
         message: "Documents uploaded and stored successfully",
         data: {
+          loanStatus: "Pending",
           idCardUrl: idCardSasUrl,
           businessCertificateUrl: businessCertificateSasUrl
         }

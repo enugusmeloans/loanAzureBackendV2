@@ -31,29 +31,34 @@ function isAuthenticated(req, res, next) {
     }
 }
 
-// Middleware to check if user is an admin
+// Updated isAdmin middleware to check if the user is an admin using the JWT token
 async function isAdmin(req, res, next) {
-    if (!req.user || !req.user.adminId) {
-        return res.status(403).json({ error: 'Forbidden' });
+    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
     }
 
     try {
-        const poolConnection = await sql.connect(config);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+        const userId = decoded.userId; // Extract the userId from the decoded token
+
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to check if the user is an admin
         const result = await poolConnection.request()
-            .input('adminId', sql.VarChar, req.user.adminId)
-            .query('SELECT * FROM dbo.Admins WHERE adminId = @adminId');
+            .input('userId', sql.Int, userId)
+            .query('SELECT adminId FROM dbo.Users WHERE userId = @userId');
 
-        const admin = result.recordset[0];
-        poolConnection.close();
+        poolConnection.close(); // Close the database connection
 
-        if (admin && admin.userId === req.user.userId) {
-            return next();
-        } else {
-            return res.status(403).json({ error: 'Forbidden' });
+        if (result.recordset.length === 0 || !result.recordset[0].adminId) {
+            return res.status(403).json({ success: false, message: 'Forbidden: User is not an admin', data: {} }); // Return forbidden if the user is not an admin
         }
+
+        next(); // Proceed to the next middleware or route handler
     } catch (err) {
-        console.error(err.message);
-        return res.status(500).json({ error: 'Internal Server Error' });
+        console.error('Error checking admin status:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
     }
 }
 
@@ -203,27 +208,37 @@ router.post('/demote', async (req, res) => {
     }
 });
 
-// Endpoint to check if a user is an admin - untested yet
-router.post('/is-admin', async (req, res) => {
-    const { email } = req.body;
-    try {
-        const poolConnection = await sql.connect(config);
-        const result = await poolConnection.request()
-            .input('email', sql.VarChar, email)
-            .query('SELECT * FROM dbo.Users WHERE userEmail = @email');
+// Updated /is-admin endpoint to check if the user is an admin using the JWT token
+router.get('/is-admin', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
+    }
 
-        const user = result.recordset[0];
-        if (!user) {
-            poolConnection.close();
-            return res.status(404).json({ error: 'User not found' });
+    try {
+        console.log("We are checking admin status!");
+        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+        const userId = decoded.userId; // Extract the userId from the decoded token
+
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to check if the user is an admin
+        const result = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query('SELECT adminId FROM dbo.Users WHERE userId = @userId');
+
+        poolConnection.close(); // Close the database connection
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found', data: {} }); // Return not found if the user does not exist
         }
 
-        const isAdmin = user.adminId !== null;
-        poolConnection.close();
-        res.status(200).json({ isAdmin });
+        const isAdmin = result.recordset[0].adminId !== null; // Check if the adminId is not null
+
+        res.status(200).json({ success: true, message: 'Admin status retrieved successfully', data: { isAdmin } }); // Return the admin status
     } catch (err) {
-        console.error(err.message);
-        res.status(500).json({ error: 'Internal Server Error' });
+        console.error('Error checking admin status:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
     }
 });
 
@@ -400,8 +415,60 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
     }
 });
 
+// Modified /get-all-applications endpoint to handle pagination
+router.post('/get-all-applications', isAdmin, async (req, res) => {
+    const { From, To } = req.body; // Extract From and To values from the request body
+
+    if (!From || !To || From < 1 || To < 1) {
+        return res.status(400).json({ success: false, message: 'Invalid From or To values', data: {} }); // Validate input values
+    }
+
+    try {
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to get the total number of applications
+        const totalResult = await poolConnection.request().query('SELECT COUNT(*) AS totalApplications FROM dbo.Applications');
+        const totalApplications = totalResult.recordset[0].totalApplications;
+
+        if (From > totalApplications) {
+            return res.status(400).json({ success: false, message: 'From value exceeds total number of applications', data: {} }); // Validate From value
+        }
+
+        const adjustedTo = Math.min(To, totalApplications); // Adjust To value if it exceeds total applications
+
+        // Query to fetch applications within the specified range
+        const result = await poolConnection.request()
+            .input('offset', sql.Int, From - 1) // Offset for SQL query (0-based index)
+            .input('limit', sql.Int, adjustedTo - From + 1) // Limit for SQL query
+            .query(`
+                SELECT 
+                    Applications.applicationId,
+                    Applications.dateSubmitted,
+                    BusinessInfo.businessName,
+                    PersonalInfo.fullName AS applicantName,
+                    Applications.loanStatus
+                FROM dbo.Applications
+                INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+                INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+                ORDER BY Applications.applicationId
+                OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+            `);
+
+        poolConnection.close(); // Close the database connection
+
+        res.status(200).json({
+            success: true,
+            message: 'Applications retrieved successfully',
+            data: { applications: result.recordset }
+        }); // Return the applications
+    } catch (err) {
+        console.error('Error fetching applications:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+    }
+});
+
 // Endpoint to get details of all applications - dont postman yet till after deploy testing
-router.get('/get-all-applications', async (req, res) => {
+router.get('/get-every-applications',isAdmin, async (req, res) => {
     try {
         const poolConnection = await sql.connect(config);
 
@@ -423,10 +490,10 @@ router.get('/get-all-applications', async (req, res) => {
         poolConnection.close();
 
         // Return the fetched data as a JSON object with an array of applications.
-        res.status(200).json({ applications: result.recordset });
+        res.status(200).json({ success: true, message:"Applications Fetched Successfully", data: { applications: result.recordset } });
     } catch (err) {
         console.error("Error fetching applications:", err.message);
-        res.status(500).json({ error: "Failed to fetch applications" });
+        res.status(500).json({ success: false, message: "Failed to fetch applications" });
     }
 });
 
@@ -505,7 +572,7 @@ router.get('/get-application-details/:applicationId',isAuthenticated, async (req
 });
 
 // Endpoint for admin to accept an application - postman later
-router.post('/accept-application', async (req, res) => {
+router.post('/accept-application', isAdmin, async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
 
@@ -536,7 +603,7 @@ router.post('/accept-application', async (req, res) => {
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending") {
             poolConnection.close();
-            return res.status(400).json({ error: "Only applications with a 'Pending' status can be accepted" });
+            return res.status(400).json({ success:false, message: "Only applications with a 'Pending' status can be accepted" });
         }
 
         // Update the loanStatus to "Accepted2"
@@ -554,15 +621,15 @@ router.post('/accept-application', async (req, res) => {
         // Send email to the user
         await sendEmail(userEmail, "Application Accepted", emailBody);
 
-        res.status(200).json({ message: "Application accepted successfully and email sent", applicationId });
+        res.status(200).json({ success:true, message: "Application accepted successfully and email sent", data: { applicationId } });
     } catch (err) {
         console.error("Error accepting application:", err.message);
-        res.status(500).json({ error: "Failed to accept application" });
+        res.status(500).json({ success: false, message: "Failed to accept application" });
     }
 });
 
 // Endpoint for admin to reject an application
-router.post('/reject-application', async (req, res) => {
+router.post('/reject-application', isAdmin, async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
 
@@ -621,8 +688,37 @@ router.post('/reject-application', async (req, res) => {
 // Endpoint to resubmit an application
 router.post('/resubmit-application', async (req, res) => {
     try {
-        const { applicationId, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo } = req.body;
+        const { userEmail,applicationId, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo } = req.body;
+//-----------------------------------------
+        // Get userId from userEmail
+        const poolConnection1 = await sql.connect(config);
+        const userResult = await poolConnection.request()
+            .input('email', sql.VarChar, userEmail)
+            .query('SELECT userId FROM dbo.Users WHERE userEmail = @email');
 
+            if (userResult.recordset.length === 0) {
+                poolConnection1.close(); 
+                return res.status(404).json({ success: false, message: 'User not found', data: {} });
+            }
+
+            const userId = userResult.recordset[0].userId;
+
+                // Fetch user details from ExtraUserDetails table
+                const extraDetailsResult = await poolConnection.request()
+                .input('userId', sql.Int, userId)
+                .query(`
+                    SELECT firstName, lastName, otherName, dob, gender, LGA, contactEmail AS email, phoneNumber AS phone
+                    FROM dbo.ExtraUserDetails
+                    WHERE userId = @userId
+                `);
+    
+            if (extraDetailsResult.recordset.length === 0) {
+                poolConnection.close();
+                return res.status(400).json({ success: false, message: 'Please complete your profile first', data: {} });
+            }
+    
+            const personalExtraInfo = extraDetailsResult.recordset[0];
+//--------------------------------------------
         // Validate applicationId
         if (!applicationId) {
             return res.status(400).json({ error: "Application ID is required" });
@@ -668,13 +764,13 @@ router.post('/resubmit-application', async (req, res) => {
         // Update the PersonalInfo table
         await transaction.request()
             .input('applicationId', sql.Int, applicationId)
-            .input('fullName', sql.VarChar, personalInfo.fullName)
-            .input('dob', sql.Date, personalInfo.dob)
-            .input('gender', sql.VarChar, personalInfo.gender)
-            .input('email', sql.VarChar, personalInfo.email)
-            .input('phone', sql.BigInt, personalInfo.phone)
+            .input('fullName', sql.VarChar, `${personalExtraInfo.firstName} ${personalExtraInfo.lastName} ${personalExtraInfo.otherName}`)
+            .input('dob', sql.Date, personalExtraInfo.dob)
+            .input('gender', sql.VarChar, personalExtraInfo.gender)
+            .input('email', sql.VarChar, personalExtraInfo.email)
+            .input('phone', sql.BigInt, personalExtraInfo.phone)
             .input('residentAddress', sql.VarChar, personalInfo.residentAddress)
-            .input('LGA', sql.VarChar, personalInfo.LGA)
+            .input('LGA', sql.VarChar, personalExtraInfo.LGA)
             .input('state', sql.VarChar, personalInfo.state)
             .input('BVN', sql.BigInt, personalInfo.BVN)
             .input('NIN', sql.BigInt, personalInfo.NIN)
@@ -792,7 +888,7 @@ router.post('/resubmit-application', async (req, res) => {
 });
 
 // Endpoint for admin to request resubmission of an application
-router.post('/request-resubmission', async (req, res) => {
+router.post('/request-resubmission', isAdmin, async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
 
@@ -1041,9 +1137,8 @@ router.get('/user-applications', async (req, res) => {
         if (result.recordset.length === 0) {
             return res.status(404).json({ success: false, message: 'No applications found for the user', data: {} }); // Return not found if no applications exist
         }
-
-        res.status(200).json({ success: true, message: 'Applications retrieved successfully', data: { applications: result.recordset } }); // Return the applications
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error fetching user applications:', err.message); // Log any errors
         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
     }
@@ -1089,5 +1184,88 @@ router.get('/application-stats', async (req, res) => {
         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
     }
 });
+
+// Endpoint to get application statistics across all users
+router.get('/application-stats-overall',isAdmin, async (req, res) => {
+    try {
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to get application statistics across all users
+        const result = await poolConnection.request().query(`
+            SELECT 
+                COUNT(*) AS totalApplications,
+                SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
+                SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
+                SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
+            FROM dbo.Applications
+        `);
+
+        poolConnection.close(); // Close the database connection
+
+        const stats = result.recordset[0]; // Extract the statistics from the query result
+
+        res.status(200).json({
+            success: true,
+            message: 'Overall application statistics retrieved successfully',
+            data: stats
+        }); // Return the statistics
+    } catch (err) {
+        console.error('Error fetching overall application statistics:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+    }
+});
+
+// Endpoint to get the percentage of approved, rejected, and pending applications
+router.get('/application-percentages', async (req, res) => {
+    try {
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to get the total number of applications and counts for each loanStatus category
+        const result = await poolConnection.request().query(`
+            SELECT 
+                COUNT(*) AS totalApplications,
+                SUM(CASE WHEN loanStatus = 'Accepted2' THEN 1 ELSE 0 END) AS approvedApplications,
+                SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications,
+                SUM(CASE WHEN loanStatus IN ('Pending', 'Resubmit', 'Accepted1', 'Rejected1') THEN 1 ELSE 0 END) AS pendingApplications
+            FROM dbo.Applications
+        `);
+
+        poolConnection.close(); // Close the database connection
+
+        const stats = result.recordset[0]; // Extract the statistics from the query result
+
+        if (stats.totalApplications === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'No applications found',
+                data: {
+                    approvedPercentage: 0,
+                    rejectedPercentage: 0,
+                    pendingPercentage: 0
+                }
+            });
+        }
+
+        // Calculate percentages
+        const approvedPercentage = (stats.approvedApplications / stats.totalApplications) * 100;
+        const rejectedPercentage = (stats.rejectedApplications / stats.totalApplications) * 100;
+        const pendingPercentage = (stats.pendingApplications / stats.totalApplications) * 100;
+
+        res.status(200).json({
+            success: true,
+            message: 'Application percentages retrieved successfully',
+            data: {
+                approvedPercentage: approvedPercentage.toFixed(2),
+                rejectedPercentage: rejectedPercentage.toFixed(2),
+                pendingPercentage: pendingPercentage.toFixed(2)
+            }
+        }); // Return the percentages
+    } catch (err) {
+        console.error('Error fetching application percentages:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+    }
+});
+
+
 
 export default router;
