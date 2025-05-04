@@ -60,48 +60,48 @@ async function isAdmin(req, res, next) {
 // Function to evaluate loan eligibility
 async function evaluateLoanEligibility(applicationData) {
     try {
-        // Commenting out the main logic for testing purposes
-        /*
-        // Prepare data for the AI endpoint
-        const aIdata = {
-            how_long_has_your_business_been_active: applicationData.businessInfo.businessAge,
-            what_type_of_business_do_you_run: applicationData.businessInfo.businessType,
-            in_which_industry_does_your_business_operate: applicationData.businessInfo.businessIndustry,
-            lga_of_business: applicationData.businessInfo.businessLGA,
-            town_of_business: applicationData.businessInfo.businessTown,
-            do_you_have_a_bank_account_for_your_business: applicationData.financeInfo.bankAccountQuestion,
-            do_you_use_any_digital_payment_systems: applicationData.financeInfo.digitalPaymentQuestion,
-            how_do_you_manage_your_business_finances: applicationData.financeInfo.businessFinanceQuestion,
-            what_are_the_biggest_challenges_your_business_faces: applicationData.challengeInfo.biggestChallengeQuestion,
-            what_kind_of_support_would_you_like_from_government: applicationData.challengeInfo.govtSupportQuestion,
-            what_would_help_your_business_grow_the_most: applicationData.challengeInfo.businessGrowthQuestion,
-            have_you_ever_tried_to_get_a_loan_for_your_business: applicationData.loanInfo.loanBeforeQuestion,
-            if_yes_how_did_you_get_the_loan: applicationData.loanInfo.loanHowQuestion,
-            if_you_did_not_get_a_loan_what_was_the_main_reason: applicationData.loanInfo.whyNoLoan,
-            have_you_faced_any_issues_with_government_rules_or_taxes: applicationData.regulatoryInfo.regulatoryChallengeQuestion,
-        };
+    //     // Commenting out the main logic for testing purposes
 
-        // Post data to the AI endpoint
-        const aIresponse = await fetch('https://c7cb-197-210-84-126.ngrok-free.app/predict', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(aIdata),
-        });
+    //     // Prepare data for the AI endpoint
+    //     const aIdata = {
+    //         how_long_has_your_business_been_active: applicationData.businessInfo.businessAge,
+    //         what_type_of_business_do_you_run: applicationData.businessInfo.businessType,
+    //         in_which_industry_does_your_business_operate: applicationData.businessInfo.businessIndustry,
+    //         lga_of_business: applicationData.businessInfo.businessLGA,
+    //         town_of_business: applicationData.businessInfo.businessTown,
+    //         do_you_have_a_bank_account_for_your_business: applicationData.financeInfo.bankAccountQuestion,
+    //         do_you_use_any_digital_payment_systems: applicationData.financeInfo.digitalPaymentQuestion,
+    //         how_do_you_manage_your_business_finances: applicationData.financeInfo.businessFinanceQuestion,
+    //         what_are_the_biggest_challenges_your_business_faces: applicationData.challengeInfo.biggestChallengeQuestion,
+    //         what_kind_of_support_would_you_like_from_government: applicationData.challengeInfo.govtSupportQuestion,
+    //         what_would_help_your_business_grow_the_most: applicationData.challengeInfo.businessGrowthQuestion,
+    //         have_you_ever_tried_to_get_a_loan_for_your_business: applicationData.loanInfo.loanBeforeQuestion,
+    //         if_yes_how_did_you_get_the_loan: applicationData.loanInfo.loanHowQuestion,
+    //         if_you_did_not_get_a_loan_what_was_the_main_reason: applicationData.loanInfo.whyNoLoan,
+    //         have_you_faced_any_issues_with_government_rules_or_taxes: applicationData.regulatoryInfo.regulatoryChallengeQuestion,
+    //     };
 
-        const aIresponseJson = await aIresponse.json();
-        console.log("aIresponseJson", aIresponseJson);
+    //     // Post data to the AI endpoint
+    //     const aIresponse = await fetch('https://loan-eligibility-api-d0fec7cqg4h2c0bb.canadacentral-01.azurewebsites.net', {
+    //         method: 'POST',
+    //         headers: {
+    //             'Content-Type': 'application/json',
+    //         },
+    //         body: JSON.stringify(aIdata),
+    //     });
 
-        // Determine loan status based on AI response
-        const loanStatus = aIresponseJson === "Eligible for Loan" ? "Accepted1" : "Rejected1";
-        console.log("loanStatus", loanStatus);
+    //     const aIresponseJson = await aIresponse.json();
+    //     console.log("aIresponseJson", aIresponseJson);
 
-        return loanStatus;
-        */
+    //     // Determine loan status based on AI response
+    //     const loanStatus = aIresponseJson === "Eligible for Loan" ? "Accepted1" : "Rejected1";
+    //     console.log("loanStatus", loanStatus);
+
+    //     return loanStatus;
+        
 
         // For testing, always return the positive value
-        return "Rejected1";
+        return "Accepted1";
     } catch (error) {
         console.error("Error evaluating loan eligibility:", error);
         throw new Error("Failed to evaluate loan eligibility");
@@ -227,7 +227,7 @@ router.post('/is-admin', async (req, res) => {
     }
 });
 
-// Endpoint to submit an application - updated to remove CAC from PersonalInfo
+// Updated /submit-application route to check for user details in ExtraUserDetails table
 router.post('/submit-application', isAuthenticated, async (req, res) => {
     const { userEmail, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo, dateSubmitted } = req.body;
 
@@ -270,12 +270,34 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
         const transaction = new sql.Transaction(poolConnection);
         await transaction.begin();
 
+        
         // Get userId from userEmail
-        const userResult = await transaction.request()
-            .input('email', sql.VarChar, userEmail)
-            .query('SELECT userId FROM dbo.Users WHERE userEmail = @email');
+        const userResult = await poolConnection.request()
+        .input('email', sql.VarChar, userEmail)
+        .query('SELECT userId FROM dbo.Users WHERE userEmail = @email');
+    
+            if (userResult.recordset.length === 0) {
+                poolConnection.close();
+                return res.status(404).json({ success: false, message: 'User not found', data: {} });
+            }
+    
+            const userId = userResult.recordset[0].userId;
+    
+        // Fetch user details from ExtraUserDetails table
+        const extraDetailsResult = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT firstName, lastName, otherName, dob, gender, LGA, contactEmail AS email, phoneNumber AS phone
+                FROM dbo.ExtraUserDetails
+                WHERE userId = @userId
+            `);
 
-        const userId = userResult.recordset[0].userId;
+        if (extraDetailsResult.recordset.length === 0) {
+            poolConnection.close();
+            return res.status(400).json({ success: false, message: 'Please complete your profile first', data: {} });
+        }
+
+        const personalExtraInfo = extraDetailsResult.recordset[0];
 
         // Insert into Applications table and get the generated applicationId
         const applicationResult = await transaction.request()
@@ -286,16 +308,16 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 
         const applicationId = applicationResult.recordset[0].applicationId;
 
-        // Insert into PersonalInfo table (removed CAC)
+        // Insert into PersonalInfo table using details from ExtraUserDetails
         await transaction.request()
             .input('applicationId', sql.Int, applicationId)
-            .input('fullName', sql.VarChar, personalInfo.fullName)
-            .input('dob', sql.Date, personalInfo.dob)
-            .input('gender', sql.VarChar, personalInfo.gender)
-            .input('email', sql.VarChar, personalInfo.email)
-            .input('phone', sql.BigInt, personalInfo.phone)
+            .input('fullName', sql.VarChar, `${personalExtraInfo.firstName} ${personalExtraInfo.lastName} ${personalExtraInfo.otherName}`)
+            .input('dob', sql.Date, personalExtraInfo.dob)
+            .input('gender', sql.VarChar, personalExtraInfo.gender)
+            .input('email', sql.VarChar, personalExtraInfo.email)
+            .input('phone', sql.BigInt, personalExtraInfo.phone)
             .input('residentAddress', sql.VarChar, personalInfo.residentAddress)
-            .input('LGA', sql.VarChar, personalInfo.LGA)
+            .input('LGA', sql.VarChar, personalExtraInfo.LGA)
             .input('state', sql.VarChar, personalInfo.state)
             .input('BVN', sql.BigInt, personalInfo.BVN)
             .input('NIN', sql.BigInt, personalInfo.NIN)
@@ -374,7 +396,7 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
         res.status(200).json({ success: true, message: 'Application submitted successfully', data:{status: "Accepted", ...applicationSResult} });
     } catch (err) {
         console.error(err.message);
-        res.status(500).json({ success: false, message: 'Error submitting application', data:{ error: err.message } });
+        res.status(500).json({ success: false, message: 'Error submitting application', data: { error: err.message } });
     }
 });
 
