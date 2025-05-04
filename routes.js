@@ -63,55 +63,103 @@ async function isAdmin(req, res, next) {
 }
 
 // Function to evaluate loan eligibility
-async function evaluateLoanEligibility(applicationData) {
-    try {
-    //     // Commenting out the main logic for testing purposes
+// async function evaluateLoanEligibility(applicationData) {
+//     try {
+//     //     // Commenting out the main logic for testing purposes
 
-    //     // Prepare data for the AI endpoint
-    //     const aIdata = {
-    //         how_long_has_your_business_been_active: applicationData.businessInfo.businessAge,
-    //         what_type_of_business_do_you_run: applicationData.businessInfo.businessType,
-    //         in_which_industry_does_your_business_operate: applicationData.businessInfo.businessIndustry,
-    //         lga_of_business: applicationData.businessInfo.businessLGA,
-    //         town_of_business: applicationData.businessInfo.businessTown,
-    //         do_you_have_a_bank_account_for_your_business: applicationData.financeInfo.bankAccountQuestion,
-    //         do_you_use_any_digital_payment_systems: applicationData.financeInfo.digitalPaymentQuestion,
-    //         how_do_you_manage_your_business_finances: applicationData.financeInfo.businessFinanceQuestion,
-    //         what_are_the_biggest_challenges_your_business_faces: applicationData.challengeInfo.biggestChallengeQuestion,
-    //         what_kind_of_support_would_you_like_from_government: applicationData.challengeInfo.govtSupportQuestion,
-    //         what_would_help_your_business_grow_the_most: applicationData.challengeInfo.businessGrowthQuestion,
-    //         have_you_ever_tried_to_get_a_loan_for_your_business: applicationData.loanInfo.loanBeforeQuestion,
-    //         if_yes_how_did_you_get_the_loan: applicationData.loanInfo.loanHowQuestion,
-    //         if_you_did_not_get_a_loan_what_was_the_main_reason: applicationData.loanInfo.whyNoLoan,
-    //         have_you_faced_any_issues_with_government_rules_or_taxes: applicationData.regulatoryInfo.regulatoryChallengeQuestion,
-    //     };
+//     //     // Prepare data for the AI endpoint
+//     //     const aIdata = {
+//     //         how_long_has_your_business_been_active: applicationData.businessInfo.businessAge,
+//     //         what_type_of_business_do_you_run: applicationData.businessInfo.businessType,
+//     //         in_which_industry_does_your_business_operate: applicationData.businessInfo.businessIndustry,
+//     //         lga_of_business: applicationData.businessInfo.businessLGA,
+//     //         town_of_business: applicationData.businessInfo.businessTown,
+//     //         do_you_have_a_bank_account_for_your_business: applicationData.financeInfo.bankAccountQuestion,
+//     //         do_you_use_any_digital_payment_systems: applicationData.financeInfo.digitalPaymentQuestion,
+//     //         how_do_you_manage_your_business_finances: applicationData.financeInfo.businessFinanceQuestion,
+//     //         what_are_the_biggest_challenges_your_business_faces: applicationData.challengeInfo.biggestChallengeQuestion,
+//     //         what_kind_of_support_would_you_like_from_government: applicationData.challengeInfo.govtSupportQuestion,
+//     //         what_would_help_your_business_grow_the_most: applicationData.challengeInfo.businessGrowthQuestion,
+//     //         have_you_ever_tried_to_get_a_loan_for_your_business: applicationData.loanInfo.loanBeforeQuestion,
+//     //         if_yes_how_did_you_get_the_loan: applicationData.loanInfo.loanHowQuestion,
+//     //         if_you_did_not_get_a_loan_what_was_the_main_reason: applicationData.loanInfo.whyNoLoan,
+//     //         have_you_faced_any_issues_with_government_rules_or_taxes: applicationData.regulatoryInfo.regulatoryChallengeQuestion,
+//     //     };
 
-    //     // Post data to the AI endpoint
-    //     const aIresponse = await fetch('https://loan-eligibility-api-d0fec7cqg4h2c0bb.canadacentral-01.azurewebsites.net', {
-    //         method: 'POST',
-    //         headers: {
-    //             'Content-Type': 'application/json',
-    //         },
-    //         body: JSON.stringify(aIdata),
-    //     });
+//     //     // Post data to the AI endpoint
+//     //     const aIresponse = await fetch('https://loan-eligibility-api-d0fec7cqg4h2c0bb.canadacentral-01.azurewebsites.net', {
+//     //         method: 'POST',
+//     //         headers: {
+//     //             'Content-Type': 'application/json',
+//     //         },
+//     //         body: JSON.stringify(aIdata),
+//     //     });
 
-    //     const aIresponseJson = await aIresponse.json();
-    //     console.log("aIresponseJson", aIresponseJson);
+//     //     const aIresponseJson = await aIresponse.json();
+//     //     console.log("aIresponseJson", aIresponseJson);
 
-    //     // Determine loan status based on AI response
-    //     const loanStatus = aIresponseJson === "Eligible for Loan" ? "Accepted1" : "Rejected1";
-    //     console.log("loanStatus", loanStatus);
+//     //     // Determine loan status based on AI response
+//     //     const loanStatus = aIresponseJson === "Eligible for Loan" ? "Accepted1" : "Rejected1";
+//     //     console.log("loanStatus", loanStatus);
 
-    //     return loanStatus;
+//     //     return loanStatus;
         
 
-        // For testing, always return the positive value
-        return "Accepted1";
+//         // For testing, always return the positive value
+//         return "Accepted1";
+//     } catch (error) {
+//         console.error("Error evaluating loan eligibility:", error);
+//         throw new Error("Failed to evaluate loan eligibility");
+//     }
+// }
+
+
+const evaluateLoanEligibility = async (applicationData) => {
+    const apiUrl = "https://loan-eligibility-api-d0fec7cqg4h2c0bb.canadacentral-01.azurewebsites.net/predict";
+
+    const formData = {
+        "how_long_has_your_business_been_active": applicationData.businessInfo.businessAge,
+        "what_type_of_business_do_you_run": applicationData.businessInfo.businessType,
+        "in_which_industry_does_your_business_operate": applicationData.businessInfo.businessIndustry,
+        "lga_of_business": applicationData.businessInfo.businessLGA,
+        "town_of_business": applicationData.businessInfo.businessTown,
+        "do_you_have_a_bank_account_for_your_business": applicationData.financeInfo.bankAccountQuestion,
+        "do_you_use_any_digital_payment_systems": applicationData.financeInfo.digitalPaymentQuestion,
+        "how_do_you_manage_your_business_finances": applicationData.financeInfo.businessFinanceQuestion,
+        "what_are_the_biggest_challenges_your_business_faces": applicationData.challengeInfo.biggestChallengeQuestion,
+        "what_kind_of_support_would_you_like_from_government": applicationData.challengeInfo.govtSupportQuestion,
+        "what_would_help_your_business_grow_the_most": applicationData.challengeInfo.businessGrowthQuestion,
+        "have_you_ever_tried_to_get_a_loan_for_your_business": applicationData.loanInfo.loanBeforeQuestion,
+        "if_yes_how_did_you_get_the_loan": applicationData.loanInfo.loanHowQuestion,
+        "if_you_did_not_get_a_loan_what_was_the_main_reason": applicationData.loanInfo.whyNoLoan,
+        "have_you_faced_any_issues_with_government_rules_or_taxes": applicationData.regulatoryInfo.regulatoryChallengeQuestion,
+    };
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(formData),
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log(result["Loan Eligibility"]);  // Display the result to the user
+            const loanStatus = result["Loan Eligibility"] === "Eligible for Loan" ? "Accepted1" : "Rejected1";
+            // console.log(loanStatus)
+
+            return loanStatus;
+        } else {
+            console.error("Error:", response.statusText, response);
+        }
     } catch (error) {
-        console.error("Error evaluating loan eligibility:", error);
-        throw new Error("Failed to evaluate loan eligibility");
+        console.error("Request failed:", error);
+        return "Error occurred while checking loan eligibility";
     }
-}
+};
+
 
 //--------------------------------------------------------------------
 //routes
@@ -560,14 +608,14 @@ router.get('/get-application-details/:applicationId',isAuthenticated, async (req
         poolConnection.close();
 
         if (result.recordset.length === 0) {
-            return res.status(404).json({ error: "Application not found" });
+            return res.status(404).json({ succes: false, message: "Application not found" });
         }
 
         // Return the fetched application details
-        res.status(200).json({ applicationDetails: result.recordset[0] });
+        res.status(200).json({ success: true, applicationDetails: result.recordset[0] });
     } catch (err) {
         console.error("Error fetching application details:", err.message);
-        res.status(500).json({ error: "Failed to fetch application details" });
+        res.status(500).json({ success: false, message: "Failed to fetch application details" });
     }
 });
 
@@ -595,7 +643,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
 
         if (applicationResult.recordset.length === 0) {
             poolConnection.close();
-            return res.status(404).json({ error: "Application not found" });
+            return res.status(404).json({ success: false, message: "Application not found" });
         }
 
         const { loanStatus, userEmail } = applicationResult.recordset[0];
@@ -603,7 +651,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending") {
             poolConnection.close();
-            return res.status(400).json({ success:false, message: "Only applications with a 'Pending' status can be accepted" });
+            return res.status(400).json({ success: false, message: "Only applications with a 'Pending' status can be accepted" });
         }
 
         // Update the loanStatus to "Accepted2"
@@ -621,7 +669,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
         // Send email to the user
         await sendEmail(userEmail, "Application Accepted", emailBody);
 
-        res.status(200).json({ success:true, message: "Application accepted successfully and email sent", data: { applicationId } });
+        res.status(200).json({ success: true, message: "Application accepted successfully and email sent", data: { applicationId } });
     } catch (err) {
         console.error("Error accepting application:", err.message);
         res.status(500).json({ success: false, message: "Failed to accept application" });
