@@ -15,6 +15,7 @@ const jwtSecret = process.env.JWT_SECRET; // Ensure this is set in your environm
 
 // Local authentication routes
 router.post('/login', (req, res, next) => {
+  console.log("user logging in")
   passport.authenticate('local', (err, user, info) => {
     if (err) {
       return next(err);
@@ -30,7 +31,7 @@ router.post('/login', (req, res, next) => {
 
 router.post('/signup', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password,phoneNumber } = req.body;
     const hashedPassword = await bcrypt.hash(password, 10);
     const userName = email.split('@')[0];
     const poolConnection = await sql.connect(config);
@@ -46,6 +47,7 @@ router.post('/signup', async (req, res) => {
           .input('email', sql.VarChar, email)
           .input('password', sql.VarChar, hashedPassword)
           .query('UPDATE dbo.Users SET userPassword = @password WHERE userEmail = @email');
+          
       } else {
         poolConnection.close();
         return res.status(400).json({ success: false, message: 'User already exists' });
@@ -55,10 +57,11 @@ router.post('/signup', async (req, res) => {
         .input('email', sql.VarChar, email)
         .input('password', sql.VarChar, hashedPassword)
         .input('userName', sql.VarChar, userName)
-        .query('INSERT INTO dbo.Users (userEmail, userPassword, userName) VALUES (@email, @password, @userName)');
+        .input('phoneNumber', sql.VarChar, phoneNumber)
+        .query('INSERT INTO dbo.Users (userEmail, userPassword, userName) VALUES (@email, @password, @userName, @phoneNumber)');
     }
 
-    const userWithoutPassword = { userEmail: email, userName };
+    const userWithoutPassword = { userEmail: email, userName:userName, phoneNumber:phoneNumber };
     const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '1h' });
 
     poolConnection.close();

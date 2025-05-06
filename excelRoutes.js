@@ -155,6 +155,86 @@ async function generatePendingApplicationsExcel(data, filePath) {
     await workbook.xlsx.writeFile(filePath);
 }
 
+// Endpoint to generate and download an Excel file for applications with loanStatus of Rejected1
+router.get('/download-rejected1-applications', async (req, res) => {
+    try {
+        const poolConnection = await sql.connect(config);
+
+        // Query to fetch all detailed data for applications with loanStatus of Accepted1
+        const result = await poolConnection.request().query(`
+            SELECT 
+                Users.userId,
+                Users.userName,
+                Users.userEmail,
+                Applications.applicationId,
+                Applications.dateSubmitted,
+                Applications.loanStatus,
+                PersonalInfo.fullName,
+                PersonalInfo.dob,
+                PersonalInfo.gender,
+                PersonalInfo.phone,
+                PersonalInfo.residentAddress,
+                PersonalInfo.BVN,
+                PersonalInfo.NIN,
+                PersonalInfo.LGA,
+                PersonalInfo.state,
+                BusinessInfo.businessName,
+                BusinessInfo.businessAddress,
+                BusinessInfo.businessType,
+                BusinessInfo.businessIndustry,
+                BusinessInfo.businessAge,
+                BusinessInfo.businessLGA,
+                BusinessInfo.businessTown,
+                ChallengeInfo.biggestChallengeQuestion AS biggestChallenge,
+                ChallengeInfo.govtSupportQuestion AS govtSupport,
+                ChallengeInfo.businessGrowthQuestion AS businessGrowth,
+                FinanceInfo.bankAccountQuestion,
+                FinanceInfo.digitalPaymentQuestion,
+                FinanceInfo.businessFinanceQuestion,
+                LoanInfo.loanBeforeQuestion,
+                LoanInfo.loanHowQuestion,
+                LoanInfo.whyNoLoan,
+                RegulatoryInfo.regulatoryChallengeQuestion AS regulatoryChallenge
+            FROM dbo.Applications
+            INNER JOIN dbo.Users ON Applications.userId = Users.userId
+            INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            INNER JOIN dbo.ChallengeInfo ON Applications.applicationId = ChallengeInfo.applicationId
+            INNER JOIN dbo.FinanceInfo ON Applications.applicationId = FinanceInfo.applicationId
+            INNER JOIN dbo.LoanInfo ON Applications.applicationId = LoanInfo.applicationId
+            INNER JOIN dbo.RegulatoryInfo ON Applications.applicationId = RegulatoryInfo.applicationId
+            WHERE Applications.loanStatus = 'Rejected1'
+        `);
+
+        poolConnection.close();
+
+        const data = result.recordset;
+
+        if (data.length === 0) {
+            return res.status(404).json({ success: false, error: 'No applications with loanStatus of Accepted1 found' });
+        }
+
+        const filePath = 'accepted1_applications.xlsx';
+        await generatePendingApplicationsExcel(data, filePath);
+
+        res.download(filePath, (err) => {
+            if (err) {
+                console.error('Error sending file:', err);
+                res.status(500).json({ success: false, error: 'Failed to download Excel file' });
+            }
+
+            fs.unlink(filePath, (unlinkErr) => {
+                if (unlinkErr) {
+                    console.error('Error deleting file:', unlinkErr);
+                }
+            });
+        });
+    } catch (err) {
+        console.error('Error generating Excel file:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to generate Excel file' });
+    }
+});
+
 // Updated query to include additional fields in the /download-rejected-applications endpoint
 router.get('/download-rejected-applications', async (req, res) => {
     try {
@@ -206,7 +286,7 @@ router.get('/download-rejected-applications', async (req, res) => {
             INNER JOIN dbo.LoanInfo ON Applications.applicationId = LoanInfo.applicationId
             INNER JOIN dbo.RegulatoryInfo ON Applications.applicationId = RegulatoryInfo.applicationId
             LEFT JOIN dbo.UploadDocuments ON Applications.applicationId = UploadDocuments.applicationId
-            WHERE Applications.loanStatus = 'Rejected1' OR Applications.loanStatus = 'Rejected2'
+            WHERE Applications.loanStatus = 'Rejected2'
         `);
 
         poolConnection.close();
@@ -360,6 +440,86 @@ router.get('/download-accepted1-applications', async (req, res) => {
                 LoanInfo.loanBeforeQuestion,
                 LoanInfo.loanHowQuestion,
                 LoanInfo.whyNoLoan,
+                RegulatoryInfo.regulatoryChallengeQuestion AS regulatoryChallenge
+            FROM dbo.Applications
+            INNER JOIN dbo.Users ON Applications.userId = Users.userId
+            INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            INNER JOIN dbo.ChallengeInfo ON Applications.applicationId = ChallengeInfo.applicationId
+            INNER JOIN dbo.FinanceInfo ON Applications.applicationId = FinanceInfo.applicationId
+            INNER JOIN dbo.LoanInfo ON Applications.applicationId = LoanInfo.applicationId
+            INNER JOIN dbo.RegulatoryInfo ON Applications.applicationId = RegulatoryInfo.applicationId
+            WHERE Applications.loanStatus = 'Accepted1'
+        `);
+
+        poolConnection.close();
+
+        const data = result.recordset;
+
+        if (data.length === 0) {
+            return res.status(404).json({ success: false, error: 'No applications with loanStatus of Accepted1 found' });
+        }
+
+        const filePath = 'accepted1_applications.xlsx';
+        await generatePendingApplicationsExcel(data, filePath);
+
+        res.download(filePath, (err) => {
+            if (err) {
+                console.error('Error sending file:', err);
+                res.status(500).json({ success: false, error: 'Failed to download Excel file' });
+            }
+
+            fs.unlink(filePath, (unlinkErr) => {
+                if (unlinkErr) {
+                    console.error('Error deleting file:', unlinkErr);
+                }
+            });
+        });
+    } catch (err) {
+        console.error('Error generating Excel file:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to generate Excel file' });
+    }
+});
+
+// Endpoint to generate and download an Excel file for applications with loanStatus of Accepted1
+router.get('/download-accepted-applications', async (req, res) => {
+    try {
+        const poolConnection = await sql.connect(config);
+
+        // Query to fetch all detailed data for applications with loanStatus of Accepted1
+        const result = await poolConnection.request().query(`
+            SELECT 
+                Users.userId,
+                Users.userName,
+                Users.userEmail,
+                Applications.applicationId,
+                Applications.dateSubmitted,
+                Applications.loanStatus,
+                PersonalInfo.fullName,
+                PersonalInfo.dob,
+                PersonalInfo.gender,
+                PersonalInfo.phone,
+                PersonalInfo.residentAddress,
+                PersonalInfo.BVN,
+                PersonalInfo.NIN,
+                PersonalInfo.LGA,
+                PersonalInfo.state,
+                BusinessInfo.businessName,
+                BusinessInfo.businessAddress,
+                BusinessInfo.businessType,
+                BusinessInfo.businessIndustry,
+                BusinessInfo.businessAge,
+                BusinessInfo.businessLGA,
+                BusinessInfo.businessTown,
+                ChallengeInfo.biggestChallengeQuestion AS biggestChallenge,
+                ChallengeInfo.govtSupportQuestion AS govtSupport,
+                ChallengeInfo.businessGrowthQuestion AS businessGrowth,
+                FinanceInfo.bankAccountQuestion,
+                FinanceInfo.digitalPaymentQuestion,
+                FinanceInfo.businessFinanceQuestion,
+                LoanInfo.loanBeforeQuestion,
+                LoanInfo.loanHowQuestion,
+                LoanInfo.whyNoLoan,
                 RegulatoryInfo.regulatoryChallengeQuestion AS regulatoryChallenge,
                 UploadDocuments.IdCardLink AS idCardLink,
                 UploadDocuments.businessCertificateLink AS businessCertificateLink,
@@ -373,7 +533,7 @@ router.get('/download-accepted1-applications', async (req, res) => {
             INNER JOIN dbo.LoanInfo ON Applications.applicationId = LoanInfo.applicationId
             INNER JOIN dbo.RegulatoryInfo ON Applications.applicationId = RegulatoryInfo.applicationId
             LEFT JOIN dbo.UploadDocuments ON Applications.applicationId = UploadDocuments.applicationId
-            WHERE Applications.loanStatus = 'Accepted1'
+            WHERE Applications.loanStatus = 'Accepted2'
         `);
 
         poolConnection.close();
@@ -381,16 +541,16 @@ router.get('/download-accepted1-applications', async (req, res) => {
         const data = result.recordset;
 
         if (data.length === 0) {
-            return res.status(404).json({ error: 'No applications with loanStatus of Accepted1 found' });
+            return res.status(404).json({ success: false, message: 'No applications with loanStatus of Accepted2 found' });
         }
 
-        const filePath = 'accepted1_applications.xlsx';
+        const filePath = 'accepted2_applications.xlsx';
         await generatePendingApplicationsExcel(data, filePath);
 
         res.download(filePath, (err) => {
             if (err) {
                 console.error('Error sending file:', err);
-                res.status(500).json({ error: 'Failed to download Excel file' });
+                res.status(500).json({ success: false, message: 'Failed to download Excel file' });
             }
 
             fs.unlink(filePath, (unlinkErr) => {
@@ -401,7 +561,7 @@ router.get('/download-accepted1-applications', async (req, res) => {
         });
     } catch (err) {
         console.error('Error generating Excel file:', err.message);
-        res.status(500).json({ error: 'Failed to generate Excel file' });
+        res.status(500).json({ success: false, message: 'Failed to generate Excel file' });
     }
 });
 

@@ -50,7 +50,7 @@ async function isAdmin(req, res, next) {
             .query('SELECT adminId FROM dbo.Users WHERE userId = @userId');
 
         poolConnection.close(); // Close the database connection
-
+        console.log("Checking admin status...", result.recordset[0].adminId);
         if (result.recordset.length === 0 || !result.recordset[0].adminId) {
             return res.status(403).json({ success: false, message: 'Forbidden: User is not an admin', data: {} }); // Return forbidden if the user is not an admin
         }
@@ -293,6 +293,89 @@ router.get('/is-admin', async (req, res) => {
 // Updated /submit-application route to check for user details in ExtraUserDetails table
 router.post('/submit-application', isAuthenticated, async (req, res) => {
     const { userEmail, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo, dateSubmitted } = req.body;
+    console.log("Submit Application Body: ",req.body)
+    // Validate the request body
+    const requiredFields = [
+        { key: "userEmail", type: "string" },
+        { key: "personalInfo", type: "object" },
+        { key: "businessInfo", type: "object" },
+        { key: "financeInfo", type: "object" },
+        { key: "challengeInfo", type: "object" },
+        { key: "loanInfo", type: "object" },
+        { key: "regulatoryInfo", type: "object" },
+        { key: "dateSubmitted", type: "string" }
+    ];
+
+    for (const field of requiredFields) {
+        if (!req.body[field.key] || typeof req.body[field.key] !== field.type) {
+            return res.status(400).json({ success: false, message: `Invalid or missing field: ${field.key}` });
+        }
+    }
+
+    // Validate nested objects
+    const validateNestedFields = (obj, fields, parentKey) => {
+        for (const field of fields) {
+            if (!obj[field.key] || typeof obj[field.key] !== field.type) {
+                return `Invalid or missing field: ${parentKey}.${field.key}`;
+            }
+        }
+        return null;
+    };
+
+    const personalInfoFields = [
+        { key: "residentAddress", type: "string" },
+        { key: "state", type: "string" },
+        { key: "BVN", type: "number" },
+        { key: "NIN", type: "number" }
+    ];
+
+    const businessInfoFields = [
+        { key: "businessName", type: "string" },
+        { key: "businessAddress", type: "string" },
+        { key: "businessAge", type: "string" },
+        { key: "businessType", type: "string" },
+        { key: "businessIndustry", type: "string" },
+        { key: "businessLGA", type: "string" },
+        { key: "businessTown", type: "string" }
+    ];
+
+    const financeInfoFields = [
+        { key: "bankAccountQuestion", type: "string" },
+        { key: "digitalPaymentQuestion", type: "string" },
+        { key: "businessFinanceQuestion", type: "string" }
+    ];
+
+    const challengeInfoFields = [
+        { key: "biggestChallengeQuestion", type: "string" },
+        { key: "govtSupportQuestion", type: "string" },
+        { key: "businessGrowthQuestion", type: "string" }
+    ];
+
+    const loanInfoFields = [
+        { key: "loanBeforeQuestion", type: "string" },
+        { key: "loanHowQuestion", type: "string" },
+        { key: "whyNoLoan", type: "string" }
+    ];
+
+    const regulatoryInfoFields = [
+        { key: "regulatoryChallengeQuestion", type: "string" }
+    ];
+
+    const nestedValidations = [
+        { obj: req.body.personalInfo, fields: personalInfoFields, parentKey: "personalInfo" },
+        { obj: req.body.businessInfo, fields: businessInfoFields, parentKey: "businessInfo" },
+        { obj: req.body.financeInfo, fields: financeInfoFields, parentKey: "financeInfo" },
+        { obj: req.body.challengeInfo, fields: challengeInfoFields, parentKey: "challengeInfo" },
+        { obj: req.body.loanInfo, fields: loanInfoFields, parentKey: "loanInfo" },
+        { obj: req.body.regulatoryInfo, fields: regulatoryInfoFields, parentKey: "regulatoryInfo" }
+    ];
+
+    for (const validation of nestedValidations) {
+        const error = validateNestedFields(validation.obj, validation.fields, validation.parentKey);
+        if (error) {
+            return res.status(400).json({ success: false, message: error });
+        }
+    }
 
     try {
         const poolConnection = await sql.connect(config);
@@ -361,6 +444,7 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
         }
 
         const personalExtraInfo = extraDetailsResult.recordset[0];
+        console.log("personalExtraInfo", personalExtraInfo);
 
         // Insert into Applications table and get the generated applicationId
         const applicationResult = await transaction.request()
@@ -464,7 +548,7 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 });
 
 // Modified /get-all-applications endpoint to handle pagination
-router.post('/get-all-applications', isAdmin, async (req, res) => {
+router.post('/get-all-applications',isAdmin, async (req, res) => {
     const { From, To } = req.body; // Extract From and To values from the request body
 
     if (!From || !To || From < 1 || To < 1) {
@@ -479,7 +563,7 @@ router.post('/get-all-applications', isAdmin, async (req, res) => {
         const totalApplications = totalResult.recordset[0].totalApplications;
 
         if (From > totalApplications) {
-            return res.status(400).json({ success: false, message: 'From value exceeds total number of applications', data: {} }); // Validate From value
+            return res.status(400).json({ success: false, message: 'From value exceeds total number of applications', data: { totalApplications:totalApplications } }); // Validate From value
         }
 
         const adjustedTo = Math.min(To, totalApplications); // Adjust To value if it exceeds total applications
@@ -507,7 +591,7 @@ router.post('/get-all-applications', isAdmin, async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Applications retrieved successfully',
-            data: { applications: result.recordset }
+            data: { applications: result.recordset, totalApplications: totalApplications, From: From, To: adjustedTo } // Return the applications and total count
         }); // Return the applications
     } catch (err) {
         console.error('Error fetching applications:', err.message); // Log any errors
@@ -612,7 +696,7 @@ router.get('/get-application-details/:applicationId',isAuthenticated, async (req
         }
 
         // Return the fetched application details
-        res.status(200).json({ success: true, applicationDetails: result.recordset[0] });
+        res.status(200).json({ success: true, message:"Application details", data: {applicationDetails: result.recordset[0]} });
     } catch (err) {
         console.error("Error fetching application details:", err.message);
         res.status(500).json({ success: false, message: "Failed to fetch application details" });
@@ -669,7 +753,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
         // Send email to the user
         await sendEmail(userEmail, "Application Accepted", emailBody);
 
-        res.status(200).json({ success: true, message: "Application accepted successfully and email sent", data: { applicationId } });
+        res.status(200).json({ success: true, message: "Application accepted successfully and email sent", data: { applicationId:applicationId, loanStatus: "Accepted2"} });
     } catch (err) {
         console.error("Error accepting application:", err.message);
         res.status(500).json({ success: false, message: "Failed to accept application" });
@@ -726,7 +810,7 @@ router.post('/reject-application', isAdmin, async (req, res) => {
         // Send email to the user
         await sendEmail(userEmail, "Application Rejected", emailBody);
 
-        res.status(200).json({ message: "Application rejected successfully and email sent", applicationId });
+        res.status(200).json({ success:true, message: "Application rejected successfully and email sent", data: { applicationId:applicationId, loanStatus: "Rejected2" } });
     } catch (err) {
         console.error("Error rejecting application:", err.message);
         res.status(500).json({ error: "Failed to reject application" });
@@ -985,7 +1069,7 @@ router.post('/request-resubmission', isAdmin, async (req, res) => {
         // Send email to the user
         await sendEmail(userEmail, "Resubmission Requested", emailBody);
 
-        res.status(200).json({ success: true, message: "Resubmission requested successfully and email sent", data: {applicationId} });
+        res.status(200).json({ success: true, message: "Resubmission requested successfully and email sent", data: {applicationId: applicationId, loanStatus: "Resubmit"} });
     } catch (err) {
         console.error("Error requesting resubmission:", err.message);
         res.status(500).json({ success: false, error: "Failed to request resubmission" });
@@ -997,10 +1081,26 @@ router.post('/extra-user-details', async (req, res) => {
     try {
         const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob } = req.body;
 
-        // Check if all required fields are provided
+        // Check if all required fields are provided and valid
         if (!userId || !firstName || !lastName || !otherName || !gender || !phoneNumber || !contactEmail || !address || !LGA || !stateOfOrigin || !dob) {
-            return res.status(400).json({ success: false, error: "All fields are required" });
+            return res.status(400).json({ success: false, error: "All fields are required", data: { verified: false } });
         }
+
+        // Ensure none of the fields have empty or false values
+        if (
+            !String(userId).trim() || !String(firstName).trim() || !String(lastName).trim() || 
+            !String(otherName).trim() || !String(gender).trim() || !String(phoneNumber).trim() || 
+            !String(contactEmail).trim() || !String(address).trim() || !String(LGA).trim() || 
+            !String(stateOfOrigin).trim() || !String(dob).trim()
+        ) {
+            return res.status(400).json({ success: false, error: "Fields cannot be empty or false", data: { verified: false } });
+        }
+
+        // Validate dob format to fit SQL Datetime (isostring)
+        // const dobRegex = /^\d{4}-\d{2}-\d{2}$/; // Matches YYYY-MM-DD format
+        // if (!dobRegex.test(dob)) {
+        //     return res.status(400).json({ success: false, error: "Invalid date format for dob. Use YYYY-MM-DD", data: { verified: false } });
+        // }
 
         const poolConnection = await sql.connect(config);
 
@@ -1052,6 +1152,7 @@ router.post('/extra-user-details', async (req, res) => {
                 .input('address', sql.VarChar, address)
                 .input('LGA', sql.VarChar, LGA)
                 .input('stateOfOrigin', sql.VarChar, stateOfOrigin)
+                .input('dob', sql.Date, dob)
                 .query(`
                     INSERT INTO dbo.ExtraUserDetails (userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin)
                     VALUES (@userId, @firstName, @lastName, @otherName, @gender, @phoneNumber, @contactEmail, @address, @LGA, @stateOfOrigin)
@@ -1065,59 +1166,86 @@ router.post('/extra-user-details', async (req, res) => {
                 .query('UPDATE dbo.Users SET userName = @userName WHERE userId = @userId');
         }
 
+        
+
         poolConnection.close();
-        res.status(200).json({ success: true, message: "User details updated successfully" });
+        res.status(200).json({ success: true, message: "User details updated successfully", data:{ verified: true, userId: userId, firstName: firstName, lastName: lastName, otherName: otherName, dob:dob, phoneNumber: phoneNumber, contactEmail: contactEmail, address: address, LGA: LGA, stateOfOrigin: stateOfOrigin}});
     } catch (err) {
         console.error("Error updating user details:", err.message);
-        res.status(500).json({ success: false, error: "Failed to update user details" });
+        res.status(500).json({ success: false, error: "Failed to update user details", data: {verified: false} });
     }
 });
 
 // Endpoint to get all details of a user from ExtraUserDetails and Users tables- to test later
 router.get('/get-user-details/:userId', async (req, res) => {
+    console.log("Fetching user details...", req.params.userId);
     try {
+        console.log("Hello from get-user-details endpoint");
         const { userId } = req.params;
 
         // Validate userId
         if (!userId) {
-            return res.status(400).json({ success: false, error: "User ID is required" });
+            return res.status(400).json({ success: false, message: "User ID is required", data: {verified: false} });
         }
 
         const poolConnection = await sql.connect(config);
 
-        // Query to fetch user details from ExtraUserDetails and Users tables
-        const result = await poolConnection.request()
+        // Query to fetch user details from Users table
+        const userResult = await poolConnection.request()
             .input('userId', sql.Int, userId)
             .query(`
-                SELECT 
-                    ExtraUserDetails.firstName,
-                    ExtraUserDetails.lastName,
-                    ExtraUserDetails.otherName,
-                    ExtraUserDetails.gender,
-                    ExtraUserDetails.phoneNumber,
-                    ExtraUserDetails.contactEmail,
-                    ExtraUserDetails.address,
-                    ExtraUserDetails.LGA,
-                    ExtraUserDetails.stateOfOrigin,
-                    ExtraUserDetails.dob,
-                    Users.userName,
-                    Users.userEmail
-                FROM dbo.ExtraUserDetails
-                INNER JOIN dbo.Users ON ExtraUserDetails.userId = Users.userId
-                WHERE ExtraUserDetails.userId = @userId
+            SELECT 
+                userName,
+                userEmail
+            FROM dbo.Users
+            WHERE userId = @userId
             `);
+
+        if (userResult.recordset.length === 0) {
+            poolConnection.close();
+            return res.status(404).json({ success: false, message: "User not found", data: {verified: false} });
+        }
+
+        // Query to fetch user details from ExtraUserDetails table
+        const extraDetailsResult = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+            SELECT 
+                firstName,
+                lastName,
+                otherName,
+                gender,
+                phoneNumber,
+                contactEmail,
+                address,
+                LGA,
+                stateOfOrigin,
+                dob
+            FROM dbo.ExtraUserDetails
+            WHERE userId = @userId
+            `);
+
+        // Combine details from both tables
+            const userDetails = {
+                ...userResult.recordset[0],
+                ...extraDetailsResult.recordset[0]
+            };
+
+        
+
+        if (extraDetailsResult.recordset.length === 0) {
+            poolConnection.close();
+            return res.status(400).json({ success: true, message: "User details not complete", data: { verified: false} });
+        }
 
         poolConnection.close();
 
-        if (result.recordset.length === 0) {
-            return res.status(404).json({ success: false, error: "User not found" });
-        }
 
         // Return the fetched user details
-        res.status(200).json({ userDetails: result.recordset[0] });
+        res.status(200).json({ success: true, message: "Fetched User Details", data: { verified:true, userDetails:userDetails } });
     } catch (err) {
         console.error("Error fetching user details:", err.message);
-        res.status(500).json({ success: false, error: "Failed to fetch user details" });
+        res.status(500).json({ success: false, error: "Failed to fetch user details", data: {verified: false} });
     }
 });
 
@@ -1147,6 +1275,56 @@ router.get('/current-user', async (req, res) => {
     } catch (err) {
         console.error('Error fetching user details:', err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch user details' });
+    }
+});
+
+// Endpoint to get all applications made by the logged-in user
+router.get('/user-applications', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+        const userId = decoded.userId; // Extract the userId from the decoded token
+
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to fetch all applications made by the logged-in user
+        const result = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT 
+                    Applications.applicationId,
+                    Applications.dateSubmitted,
+                    Applications.loanStatus,
+                    BusinessInfo.businessName,
+                    BusinessInfo.businessIndustry,
+                    PersonalInfo.fullName AS applicantName
+                FROM dbo.Applications
+                INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+                INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+                WHERE Applications.userId = @userId
+            `);
+
+        console.log("Result for user applications:", result.recordset); // Log the result for debugging
+
+        poolConnection.close(); // Close the database connection
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ success: true, message: 'No applications found for the user', data: {applications:[]} }); // Return not found if no applications exist
+        }
+
+        // Return the fetched applications
+        res.status(200).json({
+            success: true,
+            message: 'Applications retrieved successfully',
+            data: { applications: result.recordset }
+        });
+    } catch (err) {
+        console.error('Error fetching user applications:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: { error: err.message } }); // Return internal server error
     }
 });
 
