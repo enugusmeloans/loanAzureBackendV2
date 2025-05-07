@@ -465,7 +465,7 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
             .input('phone', sql.BigInt, personalExtraInfo.phone)
             .input('residentAddress', sql.VarChar, personalInfo.residentAddress)
             .input('LGA', sql.VarChar, personalExtraInfo.LGA)
-            .input('state', sql.VarChar, personalInfo.state)
+            .input('state', sql.VarChar, personalInfo.personalState)
             .input('BVN', sql.BigInt, personalInfo.BVN)
             .input('NIN', sql.BigInt, personalInfo.NIN)
             .query('INSERT INTO dbo.PersonalInfo (applicationId, fullName, dob, gender, email, phone, residentAddress, LGA, state, BVN, NIN) VALUES (@applicationId, @fullName, @dob, @gender, @email, @phone, @residentAddress, @LGA, @state, @BVN, @NIN)');
@@ -821,15 +821,16 @@ router.post('/reject-application', isAdmin, async (req, res) => {
 router.post('/resubmit-application', async (req, res) => {
     try {
         const { userEmail,applicationId, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo } = req.body;
+        console.log("Resubmit Application Body: ",req.body)
 //-----------------------------------------
         // Get userId from userEmail
-        const poolConnection1 = await sql.connect(config);
+        const poolConnection = await sql.connect(config);
         const userResult = await poolConnection.request()
             .input('email', sql.VarChar, userEmail)
             .query('SELECT userId FROM dbo.Users WHERE userEmail = @email');
 
             if (userResult.recordset.length === 0) {
-                poolConnection1.close(); 
+                poolConnection.close(); 
                 return res.status(404).json({ success: false, message: 'User not found', data: {} });
             }
 
@@ -853,10 +854,11 @@ router.post('/resubmit-application', async (req, res) => {
 //--------------------------------------------
         // Validate applicationId
         if (!applicationId) {
+            poolConnection.close();
             return res.status(400).json({ error: "Application ID is required" });
         }
 
-        const poolConnection = await sql.connect(config);
+        // const poolConnection = await sql.connect(config);
 
         // Check the current loanStatus of the application
         const applicationResult = await poolConnection.request()
@@ -903,7 +905,7 @@ router.post('/resubmit-application', async (req, res) => {
             .input('phone', sql.BigInt, personalExtraInfo.phone)
             .input('residentAddress', sql.VarChar, personalInfo.residentAddress)
             .input('LGA', sql.VarChar, personalExtraInfo.LGA)
-            .input('state', sql.VarChar, personalInfo.state)
+            .input('state', sql.VarChar, personalInfo.personalState)
             .input('BVN', sql.BigInt, personalInfo.BVN)
             .input('NIN', sql.BigInt, personalInfo.NIN)
             .query(`
@@ -1493,5 +1495,41 @@ router.get('/application-percentages', async (req, res) => {
 });
 
 
+// Endpoint to get the total number of accepted applications per month for a specific year
+router.get('/accepted-applications-per-month/:year', async (req, res) => {
+    const { year } = req.params; // Extract the year from the request parameters
+
+    if (!year || isNaN(year)) {
+        return res.status(400).json({ success: false, message: 'Invalid or missing year parameter', data: {} }); // Validate the year parameter
+    }
+
+    try {
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to get the total number of accepted applications per month for the specified year
+        const result = await poolConnection.request()
+            .input('year', sql.Int, year)
+            .query(`
+                SELECT 
+                    MONTH(dateSubmitted) AS month,
+                    COUNT(*) AS acceptedApplications
+                FROM dbo.Applications
+                WHERE loanStatus = 'Accepted2' AND YEAR(dateSubmitted) = @year
+                GROUP BY MONTH(dateSubmitted)
+                ORDER BY month
+            `);
+
+        poolConnection.close(); // Close the database connection
+
+        res.status(200).json({
+            success: true,
+            message: `Accepted applications per month for the year ${year} retrieved successfully`,
+            data: result.recordset
+        }); // Return the monthly statistics
+    } catch (err) {
+        console.error('Error fetching accepted applications per month:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+    }
+});
 
 export default router;
