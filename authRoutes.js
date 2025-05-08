@@ -24,7 +24,7 @@ router.post('/login', (req, res, next) => {
       return res.status(400).json({ success:false, message: 'User not found' });
     }
     const { userPassword, ...userWithoutPassword } = user;
-    const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '1h' });
+    const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '3h' });
     return res.status(200).json({ success:true, message: 'Logged in', data: { user: userWithoutPassword, token } });
   })(req, res, next);
 });
@@ -83,7 +83,7 @@ router.post('/signup', async (req, res) => {
     // Generate a JWT token for the user
     // Exclude the password from the user object before signing the token
     const userWithoutPassword = { userEmail: email, userName:userName, phoneNumber:phoneNumber };
-    const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '1h' });
+    const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '3h' });
 
     poolConnection.close();
     res.status(200).json({ success:true, message: 'Signed up', data:{ user: userWithoutPassword, token } });
