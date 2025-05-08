@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import fetch from "node-fetch"; // Import fetch for making HTTP requests
 import { sendEmail } from './emailService.js'; // Import the email service
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import { uploadImage, generateSasUrl, deleteImage } from './azureBlobService.js';
 
 dotenv.config();
 
@@ -537,9 +539,25 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 
         // Check the loan status and respond accordingly
         if (loanStatus === "Rejected1") {
+            // Send email to the user about the rejection
+            await
+            sendEmail({
+                to: personalExtraInfo.email,
+                subject: "Loan Application Rejected",
+                text: `Dear ${personalExtraInfo.firstName},\n\nYour loan application has been rejected based on the eligibility criteria.\n\nBest regards,\nLoan Application Team`
+            });
+            // send a rejected response back to the user with the application details
             return res.status(200).json({ success: true, message: "Application submitted but rejected based on eligibility criteria", data:{ status: "Rejected", ...applicationSResult} });
         }
-
+        
+        // Send email to the user about the successful application submission
+        await
+        sendEmail({
+            to: personalExtraInfo.email,
+            subject: "Loan Application Submitted",
+            text: `Dear ${personalExtraInfo.firstName},\n\nYour loan application has been submitted successfully. Please proceed to upload your documents\n\nBest regards,\nLoan Application Team`
+        });
+        // send an accepted response back to the user with the application details
         res.status(200).json({ success: true, message: 'Application submitted successfully', data:{status: "Accepted", ...applicationSResult} });
     } catch (err) {
         console.error(err.message);
@@ -1078,7 +1096,10 @@ router.post('/request-resubmission', isAdmin, async (req, res) => {
     }
 });
 
-// Endpoint to insert or update a user's record in ExtraUserDetails - note to self - to test later
+// Configure multer for file uploads
+const upload = multer({ storage: multer.memoryStorage() });
+
+// Updated /extra-user-details endpoint to handle profile picture upload
 router.post('/extra-user-details', async (req, res) => {
     try {
         const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob } = req.body;
@@ -1098,11 +1119,6 @@ router.post('/extra-user-details', async (req, res) => {
             return res.status(400).json({ success: false, error: "Fields cannot be empty or false", data: { verified: false } });
         }
 
-        // Validate dob format to fit SQL Datetime (isostring)
-        // const dobRegex = /^\d{4}-\d{2}-\d{2}$/; // Matches YYYY-MM-DD format
-        // if (!dobRegex.test(dob)) {
-        //     return res.status(400).json({ success: false, error: "Invalid date format for dob. Use YYYY-MM-DD", data: { verified: false } });
-        // }
 
         const poolConnection = await sql.connect(config);
 
@@ -1156,8 +1172,8 @@ router.post('/extra-user-details', async (req, res) => {
                 .input('stateOfOrigin', sql.VarChar, stateOfOrigin)
                 .input('dob', sql.Date, dob)
                 .query(`
-                    INSERT INTO dbo.ExtraUserDetails (userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin)
-                    VALUES (@userId, @firstName, @lastName, @otherName, @gender, @phoneNumber, @contactEmail, @address, @LGA, @stateOfOrigin)
+                    INSERT INTO dbo.ExtraUserDetails (userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob, profilePicture)
+                    VALUES (@userId, @firstName, @lastName, @otherName, @gender, @phoneNumber, @contactEmail, @address, @LGA, @stateOfOrigin, @dob)
                 `);
 
             // Update userName in Users table
@@ -1168,88 +1184,181 @@ router.post('/extra-user-details', async (req, res) => {
                 .query('UPDATE dbo.Users SET userName = @userName WHERE userId = @userId');
         }
 
-        
 
         poolConnection.close();
-        res.status(200).json({ success: true, message: "User details updated successfully", data:{ verified: true, userId: userId, firstName: firstName, lastName: lastName, otherName: otherName, dob:dob, phoneNumber: phoneNumber, contactEmail: contactEmail, address: address, LGA: LGA, stateOfOrigin: stateOfOrigin}});
+        res.status(200).json({ success: true, message: "User details updated successfully", data:{ verified: true, userId: userId, firstName: firstName, lastName: lastName, otherName: otherName, dob:dob, phoneNumber: phoneNumber, contactEmail: contactEmail, address: address, LGA: LGA, stateOfOrigin: stateOfOrigin }});
     } catch (err) {
         console.error("Error updating user details:", err.message);
         res.status(500).json({ success: false, error: "Failed to update user details", data: {verified: false} });
     }
 });
 
-// Endpoint to get all details of a user from ExtraUserDetails and Users tables- to test later
-router.get('/get-user-details/:userId', async (req, res) => {
-    console.log("Fetching user details...", req.params.userId);
+// Endpoint to upload a profile picture
+router.post('/upload-profile-picture', isAuthenticated, multer().single('profilePicture'), async (req, res) => {
     try {
-        console.log("Hello from get-user-details endpoint");
-        const { userId } = req.params;
+        const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+        if (!token) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
 
-        // Validate userId
-        if (!userId) {
-            return res.status(400).json({ success: false, message: "User ID is required", data: {verified: false} });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+        const userId = decoded.userId; // Extract userId from the decoded token
+        const file = req.file; // Get the uploaded file
+
+        if (!file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
         }
 
         const poolConnection = await sql.connect(config);
 
-        // Query to fetch user details from Users table
-        const userResult = await poolConnection.request()
+        // Check if the user already has a profile picture
+        const existingProfilePictureResult = await poolConnection.request()
             .input('userId', sql.Int, userId)
             .query(`
-            SELECT 
-                userName,
-                userEmail
-            FROM dbo.Users
-            WHERE userId = @userId
+                SELECT profilePicture FROM dbo.ExtraUserDetails WHERE userId = @userId
             `);
 
-        if (userResult.recordset.length === 0) {
-            poolConnection.close();
-            return res.status(404).json({ success: false, message: "User not found", data: {verified: false} });
+        const existingProfilePicture = existingProfilePictureResult.recordset[0]?.profilePicture;
+        console.log('Existing Profile Picture:', existingProfilePicture);
+
+        if (existingProfilePicture) {
+            // Delete the existing profile picture from Azure Blob Storage
+            const blobName = existingProfilePicture.split('/').pop(); // Extract blob name from URL
+            console.log('Blob Name:', blobName);
+            await deleteImage(blobName);
         }
 
-        // Query to fetch user details from ExtraUserDetails table
-        const extraDetailsResult = await poolConnection.request()
+        // Upload the new image to Azure Blob Storage
+        const imageUrl = await uploadImage(file);
+        console.log('Uploaded Image URL:', imageUrl);
+
+        // Update the profile picture URL in the ExtraUserDetails table
+        await poolConnection.request()
             .input('userId', sql.Int, userId)
+            .input('profilePicture', sql.VarChar, imageUrl)
             .query(`
-            SELECT 
-                firstName,
-                lastName,
-                otherName,
-                gender,
-                phoneNumber,
-                contactEmail,
-                address,
-                LGA,
-                stateOfOrigin,
-                dob
-            FROM dbo.ExtraUserDetails
-            WHERE userId = @userId
+                UPDATE dbo.ExtraUserDetails
+                SET profilePicture = @profilePicture
+                WHERE userId = @userId
             `);
 
-        // Combine details from both tables
-            const userDetails = {
-                ...userResult.recordset[0],
-                ...extraDetailsResult.recordset[0]
-            };
-
-        
-
-        if (extraDetailsResult.recordset.length === 0) {
-            poolConnection.close();
-            return res.status(400).json({ success: true, message: "User details not complete", data: { verified: false} });
-        }
+        // Generate a SAS URL for the uploaded image
+        const sasUrl = await generateSasUrl(imageUrl);
+        console.log('SAS URL:', sasUrl);
 
         poolConnection.close();
 
-
-        // Return the fetched user details
-        res.status(200).json({ success: true, message: "Fetched User Details", data: { verified:true, userDetails:userDetails } });
+        res.status(200).json({ success: true, message: 'Profile picture updated successfully', data: { profilePicture: sasUrl } });
     } catch (err) {
-        console.error("Error fetching user details:", err.message);
-        res.status(500).json({ success: false, error: "Failed to fetch user details", data: {verified: false} });
+        console.error('Error uploading profile picture:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to upload profile picture', data: { error: err.message } });
     }
 });
+
+router.get('/get-user-details/:userId', async (req, res) => {
+    console.log("Fetching user details...", req.params.userId);
+    let poolConnection;
+    let poolConnection1;
+
+    try {
+        const { userId } = req.params;
+
+        // Validate userId
+        if (!userId) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "User ID is required", 
+                data: { verified: false } 
+            });
+        }
+
+        poolConnection1 = await sql.connect(config);
+        console.log("Hello from get-user-details endpoint");
+
+        // Query to fetch user details from Users table
+        const userResult = await poolConnection1.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT 
+                    userName,
+                    userEmail
+                FROM dbo.Users
+                WHERE userId = @userId
+            `);
+
+        if (userResult.recordset.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "User not found", 
+                data: { verified: false } 
+            });
+        }
+
+        poolConnection = await sql.connect(config);
+
+        // Query to fetch extra user details
+        const extraDetailsResult = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(`
+                SELECT 
+                    firstName,
+                    lastName,
+                    otherName,
+                    gender,
+                    phoneNumber,
+                    contactEmail,
+                    address,
+                    LGA,
+                    stateOfOrigin,
+                    dob,
+                    profilePicture
+                FROM dbo.ExtraUserDetails
+                WHERE userId = @userId
+            `);
+
+        // Check if extra details are available
+        if (extraDetailsResult.recordset.length === 0) {
+            return res.status(200).json({ 
+                success: true, 
+                message: "User details not complete", 
+                data: { verified: false } 
+            });
+        }
+
+        // Check if the profile picture URL is valid
+        const profilePictureUrl = extraDetailsResult.recordset[0].profilePicture;
+        if (profilePictureUrl) {
+            console.log("Profile Picture URL me:", profilePictureUrl);
+            const sasUrl = await generateSasUrl(profilePictureUrl); // Generate SAS URL for the image
+            extraDetailsResult.recordset[0].profilePicture = sasUrl; // Update the profile picture URL with the SAS URL
+            console.log("SAS URL me:", sasUrl);
+        }
+
+        // Combine and return user details
+        const userDetails = {
+            ...userResult.recordset[0],
+            ...extraDetailsResult.recordset[0]
+        };
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Fetched user details", 
+            data: { verified: true, userDetails } 
+        });
+
+    } catch (err) {
+        console.error("Error fetching user details:", err.message);
+        res.status(500).json({ 
+            success: false, 
+            error: "Failed to fetch user details", 
+            data: { verified: false } 
+        });
+    } finally {
+        if (poolConnection) await poolConnection.close();
+        if (poolConnection1) await poolConnection1.close();
+    }
+});
+
 
 // Endpoint to get the current logged-in user
 router.get('/current-user', async (req, res) => {
@@ -1372,76 +1481,76 @@ router.get('/user-applications', async (req, res) => {
     }
 });
 
-// Endpoint to get application statistics for the logged-in user
-router.get('/application-stats', async (req, res) => {
-    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
-    if (!token) {
-        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
-    }
+// // Endpoint to get application statistics for the logged-in user
+// router.get('/application-stats', async (req, res) => {
+//     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+//     if (!token) {
+//         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
+//     }
 
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
-        const userId = decoded.userId; // Extract the userId from the decoded token
+//     try {
+//         const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+//         const userId = decoded.userId; // Extract the userId from the decoded token
 
-        const poolConnection = await sql.connect(config); // Connect to the database
+//         const poolConnection = await sql.connect(config); // Connect to the database
 
-        // Query to get application statistics for the logged-in user
-        const result = await poolConnection.request()
-            .input('userId', sql.Int, userId)
-            .query(`
-                SELECT 
-                    COUNT(*) AS totalApplications,
-                    SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
-                    SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
-                    SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
-                FROM dbo.Applications
-                WHERE userId = @userId
-            `);
+//         // Query to get application statistics for the logged-in user
+//         const result = await poolConnection.request()
+//             .input('userId', sql.Int, userId)
+//             .query(`
+//                 SELECT 
+//                     COUNT(*) AS totalApplications,
+//                     SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
+//                     SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
+//                     SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
+//                 FROM dbo.Applications
+//                 WHERE userId = @userId
+//             `);
 
-        poolConnection.close(); // Close the database connection
+//         poolConnection.close(); // Close the database connection
 
-        const stats = result.recordset[0]; // Extract the statistics from the query result
+//         const stats = result.recordset[0]; // Extract the statistics from the query result
 
-        res.status(200).json({
-            success: true,
-            message: 'Application statistics retrieved successfully',
-            data: stats
-        }); // Return the statistics
-    } catch (err) {
-        console.error('Error fetching application statistics:', err.message); // Log any errors
-        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
-    }
-});
+//         res.status(200).json({
+//             success: true,
+//             message: 'Application statistics retrieved successfully',
+//             data: stats
+//         }); // Return the statistics
+//     } catch (err) {
+//         console.error('Error fetching application statistics:', err.message); // Log any errors
+//         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+//     }
+// });
 
-// Endpoint to get application statistics across all users
-router.get('/application-stats-overall',isAdmin, async (req, res) => {
-    try {
-        const poolConnection = await sql.connect(config); // Connect to the database
+// // Endpoint to get application statistics across all users
+// router.get('/application-stats-overall',isAdmin, async (req, res) => {
+//     try {
+//         const poolConnection = await sql.connect(config); // Connect to the database
 
-        // Query to get application statistics across all users
-        const result = await poolConnection.request().query(`
-            SELECT 
-                COUNT(*) AS totalApplications,
-                SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
-                SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
-                SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
-            FROM dbo.Applications
-        `);
+//         // Query to get application statistics across all users
+//         const result = await poolConnection.request().query(`
+//             SELECT 
+//                 COUNT(*) AS totalApplications,
+//                 SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
+//                 SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
+//                 SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
+//             FROM dbo.Applications
+//         `);
 
-        poolConnection.close(); // Close the database connection
+//         poolConnection.close(); // Close the database connection
 
-        const stats = result.recordset[0]; // Extract the statistics from the query result
+//         const stats = result.recordset[0]; // Extract the statistics from the query result
 
-        res.status(200).json({
-            success: true,
-            message: 'Overall application statistics retrieved successfully',
-            data: stats
-        }); // Return the statistics
-    } catch (err) {
-        console.error('Error fetching overall application statistics:', err.message); // Log any errors
-        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
-    }
-});
+//         res.status(200).json({
+//             success: true,
+//             message: 'Overall application statistics retrieved successfully',
+//             data: stats
+//         }); // Return the statistics
+//     } catch (err) {
+//         console.error('Error fetching overall application statistics:', err.message); // Log any errors
+//         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+//     }
+// });
 
 // Endpoint to get the percentage of approved, rejected, and pending applications
 router.get('/application-percentages', async (req, res) => {
@@ -1494,41 +1603,111 @@ router.get('/application-percentages', async (req, res) => {
     }
 });
 
-
 // Endpoint to get the total number of accepted applications per month for a specific year
-router.get('/accepted-applications-per-month/:year', async (req, res) => {
-    const { year } = req.params; // Extract the year from the request parameters
-
-    if (!year || isNaN(year)) {
-        return res.status(400).json({ success: false, message: 'Invalid or missing year parameter', data: {} }); // Validate the year parameter
-    }
-
+router.get('/total-applications-per-month/:year', async (req, res) => {
     try {
-        const poolConnection = await sql.connect(config); // Connect to the database
+        const { year } = req.params;
 
-        // Query to get the total number of accepted applications per month for the specified year
+        // Validate year
+        if (!year || isNaN(year)) {
+            return res.status(400).json({ success: false, message: "Invalid year provided" });
+        }
+
+        const poolConnection = await sql.connect(config);
+
+        // Query to fetch the count of accepted applications grouped by month
         const result = await poolConnection.request()
             .input('year', sql.Int, year)
             .query(`
                 SELECT 
-                    MONTH(dateSubmitted) AS month,
-                    COUNT(*) AS acceptedApplications
+                    MONTH(dateSubmitted) AS month, 
+                    COUNT(*) AS totalApplications
                 FROM dbo.Applications
-                WHERE loanStatus = 'Accepted2' AND YEAR(dateSubmitted) = @year
+                WHERE YEAR(dateSubmitted) = @year
                 GROUP BY MONTH(dateSubmitted)
-                ORDER BY month
             `);
 
-        poolConnection.close(); // Close the database connection
+        poolConnection.close();
+
+        const data = result.recordset;
+
+        // Initialize an array with all months and set totalApplications to 0 by default
+        const months = [
+            "January", "February", "March", "April", "May", "June", 
+            "July", "August", "September", "October", "November", "December"
+        ];
+
+        const response = months.map((month, index) => {
+            const monthData = data.find(d => d.month === index + 1);
+            return {
+                month,
+                totalApplications: monthData ? monthData.totalApplications : 0
+            };
+        });
+
+        res.status(200).json({ success: true, data: response });
+    } catch (err) {
+        console.error("Error fetching accepted applications per month:", err.message);
+        res.status(500).json({ success: false, message: "Failed to fetch data" });
+    }
+});
+
+// Combined endpoint for application statistics
+router.get('/application-stats', isAuthenticated, async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.userId;
+
+        const poolConnection = await sql.connect(config);
+
+        // Check if the user is an admin
+        const adminCheckResult = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query('SELECT adminId FROM dbo.Users WHERE userId = @userId');
+
+        const isAdmin = adminCheckResult.recordset.length > 0 && adminCheckResult.recordset[0].adminId;
+
+        let query;
+        if (isAdmin) {
+            // Query for overall application statistics
+            query = `
+                SELECT 
+                    COUNT(*) AS totalApplications,
+                    SUM(CASE WHEN loanStatus = 'Accepted2' THEN 1 ELSE 0 END) AS approvedApplications,
+                    SUM(CASE WHEN loanStatus IN ('Rejected1', 'Rejected2') THEN 1 ELSE 0 END) AS rejectedApplications,
+                    SUM(CASE WHEN loanStatus IN ('Accepted1', 'Pending', 'Resubmit') THEN 1 ELSE 0 END) AS pendingApplications
+                FROM dbo.Applications
+            `;
+        } else {
+            // Query for user-specific application statistics
+            query = `
+                SELECT 
+                    COUNT(*) AS totalApplications,
+                    SUM(CASE WHEN loanStatus = 'Accepted2' THEN 1 ELSE 0 END) AS approvedApplications,
+                    SUM(CASE WHEN loanStatus IN ('Rejected1', 'Rejected2') THEN 1 ELSE 0 END) AS rejectedApplications,
+                    SUM(CASE WHEN loanStatus IN ('Accepted1', 'Pending', 'Resubmit') THEN 1 ELSE 0 END) AS pendingApplications
+                FROM dbo.Applications
+                WHERE userId = @userId
+            `;
+        }
+
+        const statsResult = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query(query);
+
+        const stats = statsResult.recordset[0];
+
+        poolConnection.close();
 
         res.status(200).json({
             success: true,
-            message: `Accepted applications per month for the year ${year} retrieved successfully`,
-            data: result.recordset
-        }); // Return the monthly statistics
+            message: 'Application statistics retrieved successfully',
+            data: stats
+        });
     } catch (err) {
-        console.error('Error fetching accepted applications per month:', err.message); // Log any errors
-        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+        console.error('Error fetching application statistics:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch application statistics' });
     }
 });
 
