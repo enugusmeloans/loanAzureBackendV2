@@ -326,7 +326,7 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 
     const personalInfoFields = [
         { key: "residentAddress", type: "string" },
-        { key: "state", type: "string" },
+        { key: "personalState", type: "string" },
         { key: "BVN", type: "number" },
         { key: "NIN", type: "number" }
     ];
