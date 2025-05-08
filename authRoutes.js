@@ -40,8 +40,11 @@ router.post('/signup', async (req, res) => {
       .input('email', sql.VarChar, email)
       .query('SELECT * FROM dbo.Users WHERE userEmail = @email');
 
+    // Check if the user already exists
     if (result.recordset.length > 0) {
       const user = result.recordset[0];
+      // If the user exists but has no password, update the password
+      // Otherwise, return an error message
       if (user.userPassword === null) {
         await poolConnection.request()
           .input('email', sql.VarChar, email)
@@ -53,14 +56,32 @@ router.post('/signup', async (req, res) => {
         return res.status(400).json({ success: false, message: 'User already exists' });
       }
     } else {
+      // If the user does not exist, create a new user
       await poolConnection.request()
         .input('email', sql.VarChar, email)
         .input('password', sql.VarChar, hashedPassword)
         .input('userName', sql.VarChar, userName)
-        .input('phoneNumber', sql.VarChar, phoneNumber)
-        .query('INSERT INTO dbo.Users (userEmail, userPassword, userName) VALUES (@email, @password, @userName, @phoneNumber)');
+        .query('INSERT INTO dbo.Users (userEmail, userPassword, userName) VALUES (@email, @password, @userName)');
+
+      const userIdResult = await poolConnection.request()
+        .input('email', sql.VarChar, email)
+        .query('SELECT userId FROM dbo.Users WHERE userEmail = @email');
+
+      if (userIdResult.recordset.length === 0) {
+        throw new Error('User ID not found after user creation');
+      }
+
+      const userId = userIdResult.recordset[0].userId;
+
+      await poolConnection.request()
+        .input('userId', sql.Int, userId)
+        .input('phoneNumber', sql.BigInt, phoneNumber)
+        .query('INSERT INTO dbo.ExtraUserDetails (userId, phoneNumber) VALUES (@userId, @phoneNumber)');
     }
 
+
+    // Generate a JWT token for the user
+    // Exclude the password from the user object before signing the token
     const userWithoutPassword = { userEmail: email, userName:userName, phoneNumber:phoneNumber };
     const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '1h' });
 
