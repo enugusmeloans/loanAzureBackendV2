@@ -446,12 +446,12 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 
             if (!extraDetails || requiredFields.some(field => !extraDetails[field] || !String(extraDetails[field]).trim())) {
                 poolConnection.close();
-                return res.status(400).json({ success: false, message: 'Please complete your profile first with valid data', data: {} });
+                return res.status(400).json({ success: false, message: 'Please complete your profile first with valid data', data: {verified: false} });
             }
 
         if (extraDetailsResult.recordset.length === 0) {
             poolConnection.close();
-            return res.status(400).json({ success: false, message: 'Please complete your profile first', data: {} });
+            return res.status(400).json({ success: false, message: 'Please complete your profile first', data: { verified: false } });
         }
 
         const personalExtraInfo = extraDetailsResult.recordset[0];
@@ -760,7 +760,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
         const { loanStatus, userEmail } = applicationResult.recordset[0];
 
         // Ensure the application is currently "Pending"
-        if (loanStatus !== "Pending") {
+        if (loanStatus !== "Pending" || loanStatus !== "Rejected2" ) {
             poolConnection.close();
             return res.status(400).json({ success: false, message: "Only applications with a 'Pending' status can be accepted" });
         }
@@ -817,7 +817,7 @@ router.post('/reject-application', isAdmin, async (req, res) => {
         const { loanStatus, userEmail } = applicationResult.recordset[0];
 
         // Ensure the application is currently "Pending"
-        if (loanStatus !== "Pending") {
+        if (loanStatus !== "Pending" || loanStatus !== "Accepted2" ) {
             poolConnection.close();
             return res.status(400).json({ error: "Only applications with a 'Pending' status can be rejected" });
         }
