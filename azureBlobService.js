@@ -65,25 +65,51 @@ async function deleteImage(blobName) {
 }
 
 // Generate a SAS token for a given blob URL
+// async function generateSasUrl(blobUrl) {
+//     const blobName = blobUrl.split("/").pop(); // Extract blob name from the URL
+//     const now = new Date();
+//     const expiry = new Date(now);
+//     expiry.setHours(now.getHours() + 1); // Set SAS token validity to 1 hour
+
+//     const blobClient = containerClient.getBlobClient(blobName);
+//     const sasToken = generateBlobSASQueryParameters(
+//         {
+//             containerName: process.env.AZURE_CONTAINER_NAME,
+//             blobName,
+//             permissions: BlobSASPermissions.parse("r"), // Grant read permissions
+//             startsOn: now,
+//             expiresOn: expiry,
+//         },
+//         blobServiceClient.credential
+//     ).toString();
+
+//     return `${blobClient.url}?${sasToken}`; // Return the URL with the SAS token
+// }
+
 async function generateSasUrl(blobUrl) {
-    const blobName = blobUrl.split("/").pop(); // Extract blob name from the URL
+    // Extract the blob name and decode it ONCE only
+    const encodedBlobName = blobUrl.split("/").pop().split("?")[0];
+    const blobName = decodeURIComponent(encodedBlobName);  // ✅ decode once, not twice
+
     const now = new Date();
     const expiry = new Date(now);
-    expiry.setHours(now.getHours() + 1); // Set SAS token validity to 1 hour
+    expiry.setHours(now.getHours() + 1); // 1 hour expiry
 
     const blobClient = containerClient.getBlobClient(blobName);
+
     const sasToken = generateBlobSASQueryParameters(
         {
             containerName: process.env.AZURE_CONTAINER_NAME,
             blobName,
-            permissions: BlobSASPermissions.parse("r"), // Grant read permissions
+            permissions: BlobSASPermissions.parse("r"),
             startsOn: now,
             expiresOn: expiry,
         },
-        blobServiceClient.credential
+        blobServiceClient.credential  // ✅ must be StorageSharedKeyCredential, not blobServiceClient.credential
     ).toString();
 
-    return `${blobClient.url}?${sasToken}`; // Return the URL with the SAS token
+    return `${blobClient.url}?${sasToken}`;
 }
+
 
 export { ensureContainerExists, uploadImage, listImages, deleteImage, generateSasUrl };

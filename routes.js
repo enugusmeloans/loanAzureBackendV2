@@ -1193,8 +1193,9 @@ router.post('/extra-user-details', async (req, res) => {
     }
 });
 
+
 // Endpoint to upload a profile picture
-router.post('/upload-profile-picture', isAuthenticated, multer().single('profilePicture'), async (req, res) => {
+router.post('/upload-profile-picture', isAuthenticated, upload.single("profilePicture"), async (req, res) => {
     try {
         const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
         if (!token) {
