@@ -440,6 +440,15 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
                 WHERE userId = @userId
             `);
 
+            // Check if all required fields are not empty or false
+            const requiredFields = ['firstName', 'lastName', 'otherName', 'dob', 'gender', 'LGA', 'email', 'phone'];
+            const extraDetails = extraDetailsResult.recordset[0];
+
+            if (!extraDetails || requiredFields.some(field => !extraDetails[field] || !String(extraDetails[field]).trim())) {
+                poolConnection.close();
+                return res.status(400).json({ success: false, message: 'Please complete your profile first with valid data', data: {} });
+            }
+
         if (extraDetailsResult.recordset.length === 0) {
             poolConnection.close();
             return res.status(400).json({ success: false, message: 'Please complete your profile first', data: {} });
@@ -862,6 +871,15 @@ router.post('/resubmit-application', async (req, res) => {
                     FROM dbo.ExtraUserDetails
                     WHERE userId = @userId
                 `);
+
+                // Check if all required fields are not empty or false
+                const requiredFields = ['firstName', 'lastName', 'otherName', 'dob', 'gender', 'LGA', 'email', 'phone'];
+                const extraDetails = extraDetailsResult.recordset[0];
+
+                if (!extraDetails || requiredFields.some(field => !extraDetails[field] || !String(extraDetails[field]).trim())) {
+                    poolConnection.close();
+                    return res.status(400).json({ success: false, message: 'Please complete your profile first with valid data', data: {} });
+                }
     
             if (extraDetailsResult.recordset.length === 0) {
                 poolConnection.close();
