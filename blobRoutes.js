@@ -3,6 +3,8 @@ import multer from "multer";
 import { uploadImage, listImages, deleteImage, generateSasUrl } from "./azureBlobService.js";
 import sql from "mssql"; // Import SQL for database operations
 import jwt from "jsonwebtoken"; // Import JWT for authentication
+import archiver from "archiver"; // Import archiver for zipping files
+import { downloadImageStream } from "./azureBlobService.js";
 
 const router = express.Router();
 const storage = multer.memoryStorage(); // Configure multer to store files in memory
@@ -316,6 +318,8 @@ router.get("/application-images/:applicationId", async (req, res) => {
     const idCardSasUrl = IdCardLink ? await generateSasUrl(IdCardLink) : null;
     const businessCertificateSasUrl = businessCertificateLink ? await generateSasUrl(businessCertificateLink) : null;
 
+    console.log("Sassy Urls are: ",idCardSasUrl, businessCertificateSasUrl)
+
     res.json({
         success: true,
       message: "Application images retrieved successfully",
@@ -327,6 +331,69 @@ router.get("/application-images/:applicationId", async (req, res) => {
   } catch (error) {
     console.error("Fetch Application Images Error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch application images" });
+  }
+});
+
+// Route to download all images of an application as a zip file
+router.get("/download-application-images/:applicationId", async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+
+    // Validate applicationId
+    if (!applicationId) {
+      return res.status(400).json({ success: false, message: "Application ID is required" });
+    }
+
+    const poolConnection = await sql.connect(process.env.DATABASE_URI);
+
+    // Fetch the image URLs from the database
+    const result = await poolConnection.request()
+      .input("applicationId", sql.Int, applicationId)
+      .query(`
+        SELECT IdCardLink, businessCertificateLink
+        FROM dbo.UploadDocuments
+        WHERE applicationId = @applicationId
+      `);
+
+    poolConnection.close();
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ success: false, message: "No images found for this application" });
+    }
+
+    const { IdCardLink, businessCertificateLink } = result.recordset[0];
+
+    // Validate that at least one image exists
+    if (!IdCardLink && !businessCertificateLink) {
+      return res.status(404).json({ success: false, message: "No images available for download" });
+    }
+
+    // Create a zip archive
+    const archive = archiver("zip", { zlib: { level: 9 } });
+
+    // Set the response headers for downloading a zip file
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename=application_${applicationId}_images.zip`);
+
+    // Pipe the archive to the response
+    archive.pipe(res);
+
+    // Add images to the archive
+    if (IdCardLink) {
+      const idCardStream = await downloadImageStream(IdCardLink);
+      archive.append(idCardStream, { name: "idCard.jpg" });
+    }
+
+    if (businessCertificateLink) {
+      const businessCertificateStream = await downloadImageStream(businessCertificateLink);
+      archive.append(businessCertificateStream, { name: "businessCertificate.jpg" });
+    }
+
+    // Finalize the archive
+    await archive.finalize();
+  } catch (error) {
+    console.error("Download Application Images Error:", error);
+    res.status(500).json({ success: false, message: "Failed to download application images" });
   }
 });
 

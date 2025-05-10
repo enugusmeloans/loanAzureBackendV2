@@ -111,5 +111,19 @@ async function generateSasUrl(blobUrl) {
     return `${blobClient.url}?${sasToken}`;
 }
 
+// Function to download an image stream from Azure Blob Storage
+async function downloadImageStream(blobUrl) {
+    const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
+    const containerName = process.env.AZURE_CONTAINER_NAME;
 
-export { ensureContainerExists, uploadImage, listImages, deleteImage, generateSasUrl };
+    // Extract the blob name from the URL
+    const blobName = blobUrl.split('/').pop();
+    const containerClient = blobServiceClient.getContainerClient(containerName);
+    const blobClient = containerClient.getBlobClient(blobName);
+
+    // Download the blob as a stream
+    const downloadBlockBlobResponse = await blobClient.download();
+    return downloadBlockBlobResponse.readableStreamBody;
+}
+
+export { ensureContainerExists, uploadImage, listImages, deleteImage, generateSasUrl, downloadImageStream };
