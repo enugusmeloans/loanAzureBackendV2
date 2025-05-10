@@ -1343,6 +1343,17 @@ router.get('/get-user-details/:userId', async (req, res) => {
                 data: { verified: false } 
             });
         }
+        // Check if all required fields in ExtraUserDetails are not empty or false
+        const requiredFields = ['firstName', 'lastName', 'otherName', 'gender', 'phoneNumber', 'contactEmail', 'address', 'LGA', 'stateOfOrigin', 'dob'];
+        const extraDetails = extraDetailsResult.recordset[0];
+
+        if (!extraDetails || requiredFields.some(field => !extraDetails[field] || !String(extraDetails[field]).trim())) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Please complete your profile with valid data", 
+                data: { verified: false } 
+            });
+        }
 
         // Check if the profile picture URL is valid
         const profilePictureUrl = extraDetailsResult.recordset[0].profilePicture;
@@ -1459,46 +1470,46 @@ router.get('/user-applications', async (req, res) => {
 });
 
 // Endpoint to get all applications made by the logged-in user
-router.get('/user-applications', async (req, res) => {
-    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
-    if (!token) {
-        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
-    }
+// router.get('/user-applications', async (req, res) => {
+//     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+//     if (!token) {
+//         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
+//     }
 
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
-        const userId = decoded.userId; // Extract the userId from the decoded token
+//     try {
+//         const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+//         const userId = decoded.userId; // Extract the userId from the decoded token
 
-        const poolConnection = await sql.connect(config); // Connect to the database
+//         const poolConnection = await sql.connect(config); // Connect to the database
 
-        // Query to fetch all applications made by the logged-in user
-        const result = await poolConnection.request()
-            .input('userId', sql.Int, userId)
-            .query(`
-                SELECT 
-                    Applications.applicationId,
-                    Applications.dateSubmitted,
-                    Applications.loanStatus,
-                    BusinessInfo.businessName,
-                    BusinessInfo.businessIndustry,
-                    PersonalInfo.fullName AS applicantName
-                FROM dbo.Applications
-                INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
-                INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
-                WHERE Applications.userId = @userId
-            `);
+//         // Query to fetch all applications made by the logged-in user
+//         const result = await poolConnection.request()
+//             .input('userId', sql.Int, userId)
+//             .query(`
+//                 SELECT 
+//                     Applications.applicationId,
+//                     Applications.dateSubmitted,
+//                     Applications.loanStatus,
+//                     BusinessInfo.businessName,
+//                     BusinessInfo.businessIndustry,
+//                     PersonalInfo.fullName AS applicantName
+//                 FROM dbo.Applications
+//                 INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+//                 INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+//                 WHERE Applications.userId = @userId
+//             `);
 
-        poolConnection.close(); // Close the database connection
+//         poolConnection.close(); // Close the database connection
 
-        if (result.recordset.length === 0) {
-            return res.status(404).json({ success: false, message: 'No applications found for the user', data: {} }); // Return not found if no applications exist
-        }
-    }
-    catch (err) {
-        console.error('Error fetching user applications:', err.message); // Log any errors
-        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
-    }
-});
+//         if (result.recordset.length === 0) {
+//             return res.status(404).json({ success: false, message: 'No applications found for the user', data: {} }); // Return not found if no applications exist
+//         }
+//     }
+//     catch (err) {
+//         console.error('Error fetching user applications:', err.message); // Log any errors
+//         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+//     }
+// });
 
 // // Endpoint to get application statistics for the logged-in user
 // router.get('/application-stats', async (req, res) => {
@@ -1677,16 +1688,17 @@ router.get('/application-stats', isAuthenticated, async (req, res) => {
         const token = req.headers.authorization?.split(' ')[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.userId;
-
+        console.log("User ID from token:", userId);
         const poolConnection = await sql.connect(config);
-
+        console.log("Connected to the database");
         // Check if the user is an admin
         const adminCheckResult = await poolConnection.request()
             .input('userId', sql.Int, userId)
             .query('SELECT adminId FROM dbo.Users WHERE userId = @userId');
-
+        console.log("Admin check result:", adminCheckResult.recordset);
         const isAdmin = adminCheckResult.recordset.length > 0 && adminCheckResult.recordset[0].adminId;
-
+        poolConnection.close();
+        console.log("Is Admin:", isAdmin);
         let query;
         if (isAdmin) {
             // Query for overall application statistics
@@ -1710,15 +1722,16 @@ router.get('/application-stats', isAuthenticated, async (req, res) => {
                 WHERE userId = @userId
             `;
         }
-
-        const statsResult = await poolConnection.request()
+        console.log("Query to be executed");
+        const poolConnection1 = await sql.connect(config);
+        const statsResult = await poolConnection1.request()
             .input('userId', sql.Int, userId)
             .query(query);
-
+        console.log("Stats result:", statsResult.recordset);
         const stats = statsResult.recordset[0];
-
-        poolConnection.close();
-
+        console.log("Final stats:", stats);
+        poolConnection1.close();
+        console.log("Database connection closed");
         res.status(200).json({
             success: true,
             message: 'Application statistics retrieved successfully',

@@ -37,18 +37,17 @@ const app = express();
 
 // Use the CORS middleware to allow all origins
 app.use(cors({
-  origin: ['https://sme-loan.onrender.com','http://localhost:5173'],
-  credentials: true
+  origin: ['https://sme-loan.onrender.com','http://localhost:5173']
 }));
 
 // Middleware to set headers explicitly
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  next();
-});
+// app.use((req, res, next) => {
+//   res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+//   res.setHeader('Access-Control-Allow-Credentials', 'true');
+//   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+//   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+//   next();
+// });
 
 // Middleware for parsing JSON and urlencoded form data
 app.use(express.json({ limit: '5mb' }));

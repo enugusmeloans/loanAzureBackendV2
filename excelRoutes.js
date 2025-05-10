@@ -9,6 +9,54 @@ dotenv.config();
 const router = express.Router();
 const config = process.env.DATABASE_URI;
 
+// Middleware to check if user is authenticated using JWT
+function isAuthenticated(req, res, next) {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (err) {
+        res.status(401).json({ error: 'Invalid token' });
+    }
+}
+
+// Updated isAdmin middleware to check if the user is an admin using the JWT token
+async function isAdmin(req, res, next) {
+    const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
+        const userId = decoded.userId; // Extract the userId from the decoded token
+
+        const poolConnection = await sql.connect(config); // Connect to the database
+
+        // Query to check if the user is an admin
+        const result = await poolConnection.request()
+            .input('userId', sql.Int, userId)
+            .query('SELECT adminId FROM dbo.Users WHERE userId = @userId');
+
+        poolConnection.close(); // Close the database connection
+        console.log("Checking admin status...", result.recordset[0].adminId);
+        if (result.recordset.length === 0 || !result.recordset[0].adminId) {
+            return res.status(403).json({ success: false, message: 'Forbidden: User is not an admin', data: {} }); // Return forbidden if the user is not an admin
+        }
+
+        next(); // Proceed to the next middleware or route handler
+    } catch (err) {
+        console.error('Error checking admin status:', err.message); // Log any errors
+        res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
+    }
+}
+
+// Apply the isAuthenticated and isAdmin middleware to all routes in this router
+router.use(isAuthenticated, isAdmin);
+
 // Function to generate an Excel file with detailed application data
 async function generateDetailedExcel(data, filePath) {
     const workbook = new ExcelJS.Workbook();
