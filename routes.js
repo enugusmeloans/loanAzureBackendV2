@@ -9,6 +9,7 @@ import { sendEmail } from './emailService.js'; // Import the email service
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { uploadImage, generateSasUrl, deleteImage } from './azureBlobService.js';
+import { storeNotification } from "./notificationService.js";
 
 dotenv.config();
 
@@ -548,6 +549,9 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 
         // Check the loan status and respond accordingly
         if (loanStatus === "Rejected1") {
+            // Send notification to the user about the rejection
+            await storeNotification("Loan Application Rejected", userId, `Dear ${personalExtraInfo.firstName}, your loan application has been rejected based on the eligibility criteria.`);
+
             // Send email to the user about the rejection
             await
             sendEmail({
@@ -559,6 +563,9 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
             return res.status(200).json({ success: true, message: "Application submitted but rejected based on eligibility criteria", data:{ status: "Rejected", ...applicationSResult} });
         }
         
+        // Send notification to the user about the successful application submission
+        await storeNotification("Loan Application Submitted", userId, `Dear ${personalExtraInfo.firstName}, your loan application has been submitted successfully. Please proceed to upload your documents.`);
+
         // Send email to the user about the successful application submission
         await
         sendEmail({
@@ -776,6 +783,14 @@ router.post('/accept-application', isAdmin, async (req, res) => {
             `);
 
         poolConnection.close();
+        
+        // Use the applicationId to get the userId
+        const userResult = await poolConnection.request()
+            .input('applicationId', sql.Int, applicationId)
+            .query('SELECT userId FROM dbo.Applications WHERE applicationId = @applicationId');
+        const userId = userResult.recordset[0].userId;
+        // Send notification to the user about the acceptance
+        await storeNotification("Loan Application Accepted", userId, `Dear User, your loan application has been accepted. Please check your email for further steps.`);
 
         // Send email to the user
         await sendEmail(userEmail, "Application Accepted", emailBody);
@@ -833,6 +848,14 @@ router.post('/reject-application', isAdmin, async (req, res) => {
             `);
 
         poolConnection.close();
+
+        // Use the applicationId to get the userId
+        const userResult = await poolConnection.request()
+            .input('applicationId', sql.Int, applicationId)
+            .query('SELECT userId FROM dbo.Applications WHERE applicationId = @applicationId');
+        const userId = userResult.recordset[0].userId;
+        // Send notification to the user about the rejection
+        await storeNotification("Loan Application Rejected", userId, `Dear User, your loan application has been rejected. Please check your email for further details.`);
 
         // Send email to the user
         await sendEmail(userEmail, "Application Rejected", emailBody);
@@ -1104,6 +1127,14 @@ router.post('/request-resubmission', isAdmin, async (req, res) => {
 
         poolConnection.close();
 
+        // Use the applicationId to get the userId
+        const userResult = await poolConnection.request()
+            .input('applicationId', sql.Int, applicationId)
+            .query('SELECT userId FROM dbo.Applications WHERE applicationId = @applicationId');
+        const userId = userResult.recordset[0].userId;
+        // Send notification to the user about the resubmission request
+        await storeNotification("Loan Application Resubmission Requested", userId, `Dear User, your loan application has been marked for resubmission. Please check your email for clarification and proceed to resubmit your application details.`);
+
         // Send email to the user
         await sendEmail(userEmail, "Resubmission Requested", emailBody);
 
@@ -1266,6 +1297,9 @@ router.post('/upload-profile-picture', isAuthenticated, upload.single("profilePi
         console.log('SAS URL:', sasUrl);
 
         poolConnection.close();
+
+        // Send notification to the user about the profile picture update
+        await storeNotification("Profile Picture Updated", userId, `Dear User, your profile picture has been updated successfully.`);
 
         res.status(200).json({ success: true, message: 'Profile picture updated successfully', data: { profilePicture: sasUrl } });
     } catch (err) {
@@ -1740,6 +1774,43 @@ router.get('/application-stats', isAuthenticated, async (req, res) => {
     } catch (err) {
         console.error('Error fetching application statistics:', err.message);
         res.status(500).json({ success: false, message: 'Failed to fetch application statistics' });
+    }
+});
+
+// Endpoint to get notifications for a user
+router.get('/get-notifications/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Validate userId
+        if (!userId) {
+            return res.status(400).json({ success: false, message: "User ID is required" });
+        }
+
+        const poolConnection = await sql.connect(config);
+
+        // Fetch notifications for the user
+        const result = await poolConnection.request()
+            .input('userId', sql.VarChar, userId)
+            .query(`
+                SELECT notificationId, title, body, createdAt
+                FROM Notifications
+                WHERE userId = @userId
+                ORDER BY createdAt DESC
+            `);
+
+        poolConnection.close();
+
+        if (result.recordset.length === 0) {
+            poolConnection.close();
+            return res.status(404).json({ success: false, message: "No notifications found for this user" });
+        }
+        const notifications = result.recordset
+        poolConnection.close();
+        res.status(200).json({ success: true, message: "Notifications retrieved successfully", data: notifications });
+    } catch (error) {
+        console.error("Error fetching notifications:", error.message);
+        res.status(500).json({ success: false, message: "Failed to fetch notifications" });
     }
 });
 

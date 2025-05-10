@@ -5,6 +5,11 @@ import sql from "mssql"; // Import SQL for database operations
 import jwt from "jsonwebtoken"; // Import JWT for authentication
 import archiver from "archiver"; // Import archiver for zipping files
 import { downloadImageStream } from "./azureBlobService.js";
+import { storeNotification } from "./notificationService.js";
+import { sendEmail } from "./emailService.js"; // Import email service for sending emails
+import dotenv from "dotenv"; // Import dotenv for environment variables
+dotenv.config(); // Load environment variables from .env file
+
 
 const router = express.Router();
 const storage = multer.memoryStorage(); // Configure multer to store files in memory
@@ -232,6 +237,29 @@ router.post("/upload-documents", upload.fields([
                     WHERE applicationId = @applicationId
                 `);
 
+      // Use applicationId to get userId
+      const userResult = await poolConnection.request()
+        .input("applicationId", sql.Int, applicationId)
+        .query(`
+          SELECT userId 
+          FROM dbo.Applications 
+          WHERE applicationId = @applicationId
+        `);
+
+      if (userResult.recordset.length === 0) {
+        poolConnection.close();
+        return res.status(404).json({ success: false, message: "User not found for the given application" });
+      }
+
+      const { userId } = userResult.recordset[0];
+      poolConnection.close()
+
+      // Send an email notification to the user
+      await sendEmail(userId, "Documents Uploaded", "Your documents have been uploaded successfully.");
+
+      // Store notification in the database
+      await storeNotification("Documents Uploaded Successfully", userId, "Your Documents have been uploaded. Please await final approval")
+
       res.json({
         success: true,
         message: "Documents updated successfully",
@@ -268,6 +296,29 @@ router.post("/upload-documents", upload.fields([
                     SET loanStatus = @loanStatus
                     WHERE applicationId = @applicationId
                 `);
+      
+       // Use applicationId to get userId
+      const userResult = await poolConnection.request()
+        .input("applicationId", sql.Int, applicationId)
+        .query(`
+          SELECT userId 
+          FROM dbo.Applications 
+          WHERE applicationId = @applicationId
+        `);
+
+      if (userResult.recordset.length === 0) {
+        poolConnection.close();
+        return res.status(404).json({ success: false, message: "User not found for the given application" });
+      }
+
+      const { userId } = userResult.recordset[0];
+      poolConnection.close()
+
+      // Store notification in the database
+      await storeNotification("Documents Uploaded Successfully", userId, "Your Documents have been uploaded. Please await final approval")
+
+      // Send an email notification to the user
+      await sendEmail(userId, "Documents Uploaded", "Your documents have been uploaded successfully.");
 
       res.json({
         success: true,

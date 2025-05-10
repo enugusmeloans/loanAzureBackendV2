@@ -13,7 +13,7 @@ export async function storeNotification(title, userId, body) {
 
     await poolConnection.request()
       .input("title", sql.VarChar, title)
-      .input("userId", sql.VarChar, userId)
+      .input("userId", sql.Int, userId)
       .input("body", sql.Text, body)
       .query(`
         INSERT INTO Notifications (title, userId, body, createdAt)
@@ -23,9 +23,9 @@ export async function storeNotification(title, userId, body) {
     poolConnection.close();
   } catch (error) {
     console.error("Error storing notification:", error);
-    throw new Error("Failed to store notification");
+    // throw new Error("Failed to store notification");
   }
 }
 
-storeNotification("Test Notification", "12345", "This is a test notification.")
-console.log("Notification stored successfully.");
+// storeNotification("Test Notification", "12345", "This is a test notification.")
+// console.log("Notification stored successfully.");

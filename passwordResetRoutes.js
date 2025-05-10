@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 import { sendEmail } from './emailService.js';
 import dotenv from 'dotenv';
 import schedule from 'node-schedule';
+import { storeNotification } from './notificationService.js';
 
 dotenv.config();
 
@@ -123,6 +124,10 @@ router.post('/reset-password', async (req, res) => {
             .query('DELETE FROM dbo.PasswordResetCodes WHERE userEmail = @email');
 
         poolConnection.close();
+        // Send a confirmation email
+        await sendEmail(email, "Password Reset Confirmation", "Your password has been reset successfully.");
+        // Send a notification to the user
+        await storeNotification("Password Reset", user.userId, "Your password has been reset successfully.");
 
         res.status(200).json({ message: "Password reset successfully" });
     } catch (err) {
