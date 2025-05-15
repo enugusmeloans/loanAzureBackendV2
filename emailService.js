@@ -30,4 +30,7 @@ async function sendEmail(to, subject, body) {
     }
 }
 
+// sendEmail("ultrarenz@gmail.com", "Test Email", "This is a test email.")
+// console.log("Email sent successfully.");
+
 export { sendEmail };

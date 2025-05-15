@@ -36,6 +36,7 @@ function isAuthenticated(req, res, next) {
 
 // Updated isAdmin middleware to check if the user is an admin using the JWT token
 async function isAdmin(req, res, next) {
+    console.log("function checking if user is admin", req.body)
     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
     if (!token) {
         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
@@ -261,6 +262,7 @@ router.post('/demote', async (req, res) => {
 
 // Updated /is-admin endpoint to check if the user is an admin using the JWT token
 router.get('/is-admin', async (req, res) => {
+    console.log("Checking if user is an admin", req.body)
     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
     if (!token) {
         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided

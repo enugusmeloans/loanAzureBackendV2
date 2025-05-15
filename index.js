@@ -37,7 +37,7 @@ const app = express();
 
 // Use the CORS middleware to allow all origins
 app.use(cors({
-  origin: ['https://sme-loan.onrender.com','http://localhost:5173']
+  origin: ['https://sme-loan.onrender.com','https://929f-197-210-54-14.ngrok-free.app', 'http://localhost:5173', 'http://192.168.0.149:5173'],
 }));
 
 // Middleware to set headers explicitly
@@ -71,7 +71,7 @@ function isAuthenticated(req, res, next) {
 
 console.log('Starting server...');
 app.use((req, res, next) => {
-  console.log("Hello from the middleware!");
+  console.log("A request was made! ", req.body);
   // console.log('Session Data:', req.session);
   next();
 });
@@ -79,8 +79,8 @@ app.use((req, res, next) => {
 // Connect App routes
 app.use('/auth', authRoutes);
 // Simple login route for testing
-app.get('/login', (req, res) => {
-  console.log('we are logging in!')
+app.get('/test', (req, res) => {
+  console.log('we are testing it!')
   res.send('Login Page');
 });
 
