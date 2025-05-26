@@ -1,14 +1,13 @@
 import express from "express";
-import multer from "multer";
-import { uploadImage, listImages, deleteImage, generateSasUrl } from "./azureBlobService.js";
+import { uploadFile, listFiles, deleteFile, getSignedUrl } from './b2StorageService.js';
 import sql from "mssql"; // Import SQL for database operations
 import jwt from "jsonwebtoken"; // Import JWT for authentication
 import archiver from "archiver"; // Import archiver for zipping files
-import { downloadImageStream } from "./azureBlobService.js";
 import { storeNotification } from "./notificationService.js";
 import { sendEmail } from "./emailService.js"; // Import email service for sending emails
 import dotenv from "dotenv"; // Import dotenv for environment variables
 dotenv.config(); // Load environment variables from .env file
+import multer from "multer";
 
 
 const router = express.Router();
@@ -56,83 +55,54 @@ async function isAdmin(req, res, next) {
   }
 }
 
-// Route to upload a single image
+// Route to upload a single image (Backblaze B2)
 router.post("/upload", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" }); // Validate file existence
-    const imageUrl = await uploadImage(req.file); // Upload the image
-    res.json({ success:true, message: "Upload successful", data:{ imageUrl } }); // Respond with the image URL
+    const fileName = await uploadFile(req.file);
+    res.status(200).json({ fileName });
   } catch (error) {
-    console.error("Upload Error:", error);
-    res.status(500).json({ success: false, message: "Upload failed" });
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Route to upload multiple images - up to 10
+// Route to upload multiple images (Backblaze B2)
 router.post("/upload-multiple", upload.array("images", 10), async (req, res) => {
   try {
-    if (!req.files || req.files.length === 0) return res.status(400).json({ error: "No files uploaded" }); // Validate files
-
-    const imageUrls = [];
-    for (const file of req.files) {
-      const imageUrl = await uploadImage(file); // Upload each image
-      imageUrls.push(imageUrl);
-    }
-    res.json({ message: "Upload successful", imageUrls }); // Respond with the list of image URLs
+    const fileNames = await Promise.all(req.files.map(file => uploadFile(file)));
+    res.status(200).json({ fileNames });
   } catch (error) {
-    console.error("Upload Error:", error);
-    res.status(500).json({ error: "Upload failed" });
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Route to fetch all images
+// Route to fetch all images (returns file names)
 router.get("/images", async (req, res) => {
   try {
-    const images = await listImages(); // Fetch all images
-    res.json({ images }); // Respond with the list of image URLs
+    const fileNames = await listFiles();
+    res.status(200).json({ fileNames });
   } catch (error) {
-    console.error("Fetch Error:", error);
-    res.status(500).json({ error: "Could not fetch images" });
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Route to fetch a single image with a SAS token
-router.get("/image/:blobName", async (req, res) => {
+// Route to get a signed download URL for a file
+router.get("/download/:fileName", async (req, res) => {
   try {
-    const blobName = req.params.blobName; // Get the blob name from the route parameter
-    const now = new Date();
-    const expiry = new Date(now);
-    expiry.setHours(now.getHours() + 1); // Set SAS token validity to 1 hour
-
-    const blobClient = containerClient.getBlobClient(blobName); // Get a client for the blob
-    const sasToken = generateBlobSASQueryParameters(
-      {
-        containerName: process.env.AZURE_CONTAINER_NAME,
-        blobName,
-        permissions: BlobSASPermissions.parse("r"), // Grant read permissions
-        startsOn: now,
-        expiresOn: expiry,
-      },
-      blobServiceClient.credential
-    ).toString();
-
-    const imageUrl = `${blobClient.url}?${sasToken}`; // Append the SAS token to the blob URL
-    res.json({ imageUrl }); // Respond with the image URL
+    const { fileName } = req.params;
+    const signedUrl = await getSignedUrl(fileName);
+    res.status(200).json({ url: signedUrl });
   } catch (error) {
-    console.error("Fetch Error:", error);
-    res.status(500).json({ success:false, message: "Could not fetch image" });
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Route to delete a single image
-router.delete("/delete/:blobName", async (req, res) => {
+// Route to delete a single image (Backblaze B2)
+router.delete("/delete/:fileName", async (req, res) => {
   try {
-    const blobName = req.params.blobName; // Get the blob name from the route parameter
-    await deleteImage(blobName); // Delete the image
-    res.json({ message: "Image deleted successfully" }); // Respond with success message
+    await deleteFile(req.params.fileName);
+    res.status(200).json({ message: 'Deleted successfully' });
   } catch (error) {
-    console.error("Delete Error:", error);
-    res.status(500).json({ error: "Delete failed" });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -145,7 +115,7 @@ router.delete("/delete-multiple", async (req, res) => {
     }
 
     for (const blobName of blobNames) {
-      await deleteImage(blobName); // Delete each image
+      await deleteFile(blobName); // Delete each image
     }
     res.json({ message: "Images deleted successfully" }); // Respond with success message
   } catch (error) {
@@ -203,12 +173,12 @@ router.post("/upload-documents", upload.fields([
     if (existingRecord.recordset.length > 0) {
       // Delete previous images from Azure Blob Storage
       const previousImages = existingRecord.recordset[0];
-      if (previousImages.IdCardLink) await deleteImage(previousImages.IdCardLink.split("/").pop());
-      if (previousImages.businessCertificateLink) await deleteImage(previousImages.businessCertificateLink.split("/").pop());
+      if (previousImages.IdCardLink) await deleteFile(previousImages.IdCardLink.split("/").pop());
+      if (previousImages.businessCertificateLink) await deleteFile(previousImages.businessCertificateLink.split("/").pop());
 
       // Update the existing record with new image URLs and CAC
-      const idCardUrl = await uploadImage(req.files.idCard[0]);
-      const businessCertificateUrl = await uploadImage(req.files.businessCertificate[0]);
+      const idCardUrl = await uploadFile(req.files.idCard[0]);
+      const businessCertificateUrl = await uploadFile(req.files.businessCertificate[0]);
 
       await poolConnection.request()
         .input("applicationId", sql.Int, applicationId)
@@ -222,10 +192,6 @@ router.post("/upload-documents", upload.fields([
                         CAC = @CAC
                     WHERE applicationId = @applicationId
                 `);
-
-      // Generate SAS tokens for the new images
-      const idCardSasUrl = await generateSasUrl(idCardUrl);
-      const businessCertificateSasUrl = await generateSasUrl(businessCertificateUrl);
 
       // Update loanStatus to "Pending"
       await poolConnection.request()
@@ -264,14 +230,14 @@ router.post("/upload-documents", upload.fields([
         success: true,
         message: "Documents updated successfully",
         data: {
-          idCardUrl: idCardSasUrl,
-          businessCertificateUrl: businessCertificateSasUrl
+          idCardUrl: idCardUrl,
+          businessCertificateUrl: businessCertificateUrl
         }
       });
     } else {
       // Insert new record if the application does not exist
-      const idCardUrl = await uploadImage(req.files.idCard[0]);
-      const businessCertificateUrl = await uploadImage(req.files.businessCertificate[0]);
+      const idCardUrl = await uploadFile(req.files.idCard[0]);
+      const businessCertificateUrl = await uploadFile(req.files.businessCertificate[0]);
 
       await poolConnection.request()
         .input("applicationId", sql.Int, applicationId)
@@ -282,10 +248,6 @@ router.post("/upload-documents", upload.fields([
                     INSERT INTO dbo.UploadDocuments (applicationId, IdCardLink, businessCertificateLink, CAC)
                     VALUES (@applicationId, @idCardLink, @businessCertificateLink, @CAC)
                 `);
-
-      // Generate SAS tokens for the new images
-      const idCardSasUrl = await generateSasUrl(idCardUrl);
-      const businessCertificateSasUrl = await generateSasUrl(businessCertificateUrl);
 
       // Update loanStatus to "Pending"
       await poolConnection.request()
@@ -325,8 +287,8 @@ router.post("/upload-documents", upload.fields([
         message: "Documents uploaded and stored successfully",
         data: {
           loanStatus: "Pending",
-          idCardUrl: idCardSasUrl,
-          businessCertificateUrl: businessCertificateSasUrl
+          idCardUrl: idCardUrl,
+          businessCertificateUrl: businessCertificateUrl
         }
       });
     }
@@ -431,12 +393,12 @@ router.get("/download-application-images/:applicationId", async (req, res) => {
 
     // Add images to the archive
     if (IdCardLink) {
-      const idCardStream = await downloadImageStream(IdCardLink);
+      const idCardStream = await downloadFile(IdCardLink);
       archive.append(idCardStream, { name: "idCard.jpg" });
     }
 
     if (businessCertificateLink) {
-      const businessCertificateStream = await downloadImageStream(businessCertificateLink);
+      const businessCertificateStream = await downloadFile(businessCertificateLink);
       archive.append(businessCertificateStream, { name: "businessCertificate.jpg" });
     }
 

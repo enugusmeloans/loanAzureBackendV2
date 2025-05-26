@@ -8,13 +8,15 @@ import fetch from "node-fetch"; // Import fetch for making HTTP requests
 import { sendEmail } from './emailService.js'; // Import the email service
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
-import { uploadImage, generateSasUrl, deleteImage } from './azureBlobService.js';
+// import { uploadImage, generateSasUrl, deleteImage } from './azureBlobService.js';
+import { uploadFile, listFiles, deleteFile, getSignedUrl } from './b2StorageService.js'; // Use Backblaze B2 instead
 import { storeNotification } from "./notificationService.js";
 
 dotenv.config();
 
 const router = express.Router();
 
+// Use Railway DATABASE_URI for all DB connections
 const config = process.env.DATABASE_URI;
 
 //--------------------------------------------------------------
@@ -1148,7 +1150,8 @@ router.post('/request-resubmission', isAdmin, async (req, res) => {
 });
 
 // Configure multer for file uploads
-const upload = multer({ storage: multer.memoryStorage() });
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 // Updated /extra-user-details endpoint to handle profile picture upload
 router.post('/extra-user-details', async (req, res) => {
@@ -1248,65 +1251,29 @@ router.post('/extra-user-details', async (req, res) => {
 // Endpoint to upload a profile picture
 router.post('/upload-profile-picture', isAuthenticated, upload.single("profilePicture"), async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
+        const token = req.headers.authorization?.split(' ')[1];
         if (!token) {
-            return res.status(401).json({ success: false, message: 'Unauthorized' });
+            return res.status(401).json({ error: 'Unauthorized' });
         }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
-        const userId = decoded.userId; // Extract userId from the decoded token
-        const file = req.file; // Get the uploaded file
-
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.userId;
+        const file = req.file;
         if (!file) {
-            return res.status(400).json({ success: false, message: 'No file uploaded' });
+            return res.status(400).json({ error: 'No file uploaded' });
         }
-
+        // Upload to Backblaze B2
+        const fileName = await uploadFile(file);
         const poolConnection = await sql.connect(config);
-
-        // Check if the user already has a profile picture
-        const existingProfilePictureResult = await poolConnection.request()
-            .input('userId', sql.Int, userId)
-            .query(`
-                SELECT profilePicture FROM dbo.ExtraUserDetails WHERE userId = @userId
-            `);
-
-        const existingProfilePicture = existingProfilePictureResult.recordset[0]?.profilePicture;
-        console.log('Existing Profile Picture:', existingProfilePicture);
-
-        if (existingProfilePicture) {
-            // Delete the existing profile picture from Azure Blob Storage
-            const blobName = existingProfilePicture.split('/').pop(); // Extract blob name from URL
-            console.log('Blob Name:', blobName);
-            await deleteImage(blobName);
-        }
-
-        // Upload the new image to Azure Blob Storage
-        const imageUrl = await uploadImage(file);
-        console.log('Uploaded Image URL:', imageUrl);
-
-        // Update the profile picture URL in the ExtraUserDetails table
+        // Update the user's profile picture fileName in the database
         await poolConnection.request()
             .input('userId', sql.Int, userId)
-            .input('profilePicture', sql.VarChar, imageUrl)
-            .query(`
-                UPDATE dbo.ExtraUserDetails
-                SET profilePicture = @profilePicture
-                WHERE userId = @userId
-            `);
-
-        // Generate a SAS URL for the uploaded image
-        const sasUrl = await generateSasUrl(imageUrl);
-        console.log('SAS URL:', sasUrl);
-
+            .input('profilePicture', sql.VarChar, fileName)
+            .query('UPDATE dbo.ExtraUserDetails SET profilePicture = @profilePicture WHERE userId = @userId');
         poolConnection.close();
-
-        // Send notification to the user about the profile picture update
-        await storeNotification("Profile Picture Updated", userId, `Dear User, your profile picture has been updated successfully.`);
-
-        res.status(200).json({ success: true, message: 'Profile picture updated successfully', data: { profilePicture: sasUrl } });
+        res.status(200).json({ success: true, message: 'Profile picture uploaded successfully', data: { fileName } });
     } catch (err) {
         console.error('Error uploading profile picture:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to upload profile picture', data: { error: err.message } });
+        res.status(500).json({ error: 'Failed to upload profile picture' });
     }
 });
 
@@ -1391,13 +1358,11 @@ router.get('/get-user-details/:userId', async (req, res) => {
             });
         }
 
-        // Check if the profile picture URL is valid
-        const profilePictureUrl = extraDetailsResult.recordset[0].profilePicture;
-        if (profilePictureUrl) {
-            console.log("Profile Picture URL me:", profilePictureUrl);
-            const sasUrl = await generateSasUrl(profilePictureUrl); // Generate SAS URL for the image
-            extraDetailsResult.recordset[0].profilePicture = sasUrl; // Update the profile picture URL with the SAS URL
-            console.log("SAS URL me:", sasUrl);
+        // Check if the profile picture fileName is valid
+        const profilePictureFileName = extraDetailsResult.recordset[0].profilePicture;
+        if (profilePictureFileName) {
+            const signedUrl = await getSignedUrl(profilePictureFileName);
+            extraDetailsResult.recordset[0].profilePicture = signedUrl;
         }
 
         // Combine and return user details
@@ -1504,119 +1469,6 @@ router.get('/user-applications', async (req, res) => {
         res.status(500).json({ success: false, message: 'Internal server error', data: { error: err.message } }); // Return internal server error
     }
 });
-
-// Endpoint to get all applications made by the logged-in user
-// router.get('/user-applications', async (req, res) => {
-//     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
-//     if (!token) {
-//         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
-//     }
-
-//     try {
-//         const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
-//         const userId = decoded.userId; // Extract the userId from the decoded token
-
-//         const poolConnection = await sql.connect(config); // Connect to the database
-
-//         // Query to fetch all applications made by the logged-in user
-//         const result = await poolConnection.request()
-//             .input('userId', sql.Int, userId)
-//             .query(`
-//                 SELECT 
-//                     Applications.applicationId,
-//                     Applications.dateSubmitted,
-//                     Applications.loanStatus,
-//                     BusinessInfo.businessName,
-//                     BusinessInfo.businessIndustry,
-//                     PersonalInfo.fullName AS applicantName
-//                 FROM dbo.Applications
-//                 INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
-//                 INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
-//                 WHERE Applications.userId = @userId
-//             `);
-
-//         poolConnection.close(); // Close the database connection
-
-//         if (result.recordset.length === 0) {
-//             return res.status(404).json({ success: false, message: 'No applications found for the user', data: {} }); // Return not found if no applications exist
-//         }
-//     }
-//     catch (err) {
-//         console.error('Error fetching user applications:', err.message); // Log any errors
-//         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
-//     }
-// });
-
-// // Endpoint to get application statistics for the logged-in user
-// router.get('/application-stats', async (req, res) => {
-//     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
-//     if (!token) {
-//         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
-//     }
-
-//     try {
-//         const decoded = jwt.verify(token, process.env.JWT_SECRET); // Verify and decode the JWT token
-//         const userId = decoded.userId; // Extract the userId from the decoded token
-
-//         const poolConnection = await sql.connect(config); // Connect to the database
-
-//         // Query to get application statistics for the logged-in user
-//         const result = await poolConnection.request()
-//             .input('userId', sql.Int, userId)
-//             .query(`
-//                 SELECT 
-//                     COUNT(*) AS totalApplications,
-//                     SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
-//                     SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
-//                     SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
-//                 FROM dbo.Applications
-//                 WHERE userId = @userId
-//             `);
-
-//         poolConnection.close(); // Close the database connection
-
-//         const stats = result.recordset[0]; // Extract the statistics from the query result
-
-//         res.status(200).json({
-//             success: true,
-//             message: 'Application statistics retrieved successfully',
-//             data: stats
-//         }); // Return the statistics
-//     } catch (err) {
-//         console.error('Error fetching application statistics:', err.message); // Log any errors
-//         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
-//     }
-// });
-
-// // Endpoint to get application statistics across all users
-// router.get('/application-stats-overall',isAdmin, async (req, res) => {
-//     try {
-//         const poolConnection = await sql.connect(config); // Connect to the database
-
-//         // Query to get application statistics across all users
-//         const result = await poolConnection.request().query(`
-//             SELECT 
-//                 COUNT(*) AS totalApplications,
-//                 SUM(CASE WHEN loanStatus = 'Pending' THEN 1 ELSE 0 END) AS pendingApplications,
-//                 SUM(CASE WHEN loanStatus = 'Approved2' THEN 1 ELSE 0 END) AS approvedApplications,
-//                 SUM(CASE WHEN loanStatus = 'Rejected2' THEN 1 ELSE 0 END) AS rejectedApplications
-//             FROM dbo.Applications
-//         `);
-
-//         poolConnection.close(); // Close the database connection
-
-//         const stats = result.recordset[0]; // Extract the statistics from the query result
-
-//         res.status(200).json({
-//             success: true,
-//             message: 'Overall application statistics retrieved successfully',
-//             data: stats
-//         }); // Return the statistics
-//     } catch (err) {
-//         console.error('Error fetching overall application statistics:', err.message); // Log any errors
-//         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
-//     }
-// });
 
 // Endpoint to get the percentage of approved, rejected, and pending applications
 router.get('/application-percentages', async (req, res) => {
@@ -1809,10 +1661,85 @@ router.get('/get-notifications/:userId', async (req, res) => {
         }
         const notifications = result.recordset
         poolConnection.close();
+        res.status(200).json({ success: true,
+        }); }
+    catch (err) {
+        console.error('Error fetching application statistics:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch application statistics' });
+    }
+});
+
+// Endpoint to get notifications for a user
+router.get('/get-notifications/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Validate userId
+        if (!userId) {
+            return res.status(400).json({ success: false, message: "User ID is required" });
+        }
+
+        const poolConnection = await sql.connect(config);
+
+        // Fetch notifications for the user
+        const result = await poolConnection.request()
+            .input('userId', sql.VarChar, userId)
+            .query(`
+                SELECT notificationId, title, body, createdAt
+                FROM Notifications
+                WHERE userId = @userId
+                ORDER BY createdAt DESC
+            `);
+
+        poolConnection.close();
+
+        if (result.recordset.length === 0) {
+            poolConnection.close();
+            return res.status(404).json({ success: false, message: "No notifications found for this user" });
+        }
+        const notifications = result.recordset
+        poolConnection.close();
         res.status(200).json({ success: true, message: "Notifications retrieved successfully", data: notifications });
     } catch (error) {
         console.error("Error fetching notifications:", error.message);
         res.status(500).json({ success: false, message: "Failed to fetch notifications" });
+    }
+});
+
+// File upload endpoint using Firebase Cloud Storage
+// Upload a single file (e.g., profile picture or document)
+router.post('/upload-file', isAuthenticated, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+        const url = await uploadFile(req.file);
+        res.status(200).json({ success: true, message: 'File uploaded successfully', data: { url } });
+    } catch (err) {
+        console.error('File upload error:', err.message);
+        res.status(500).json({ success: false, message: 'File upload failed', data: { error: err.message } });
+    }
+});
+
+// List all files in Firebase Cloud Storage
+router.get('/list-files', isAdmin, async (req, res) => {
+    try {
+        const urls = await listFiles();
+        res.status(200).json({ success: true, message: 'Files listed successfully', data: { urls } });
+    } catch (err) {
+        console.error('List files error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to list files', data: { error: err.message } });
+    }
+});
+
+// Delete a file from Firebase Cloud Storage
+router.delete('/delete-file/:blobName', isAdmin, async (req, res) => {
+    try {
+        await deleteFile(req.params.blobName);
+        res.status(200).json({ success: true, message: 'File deleted successfully' });
+    } catch (err) {
+        console.error('Delete file error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to delete file', data: { error: err.message } });
     }
 });
 

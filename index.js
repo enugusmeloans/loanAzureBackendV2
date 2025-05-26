@@ -6,30 +6,31 @@ import passport from 'passport';
 import dotenv from 'dotenv';
 import './auth.js'; // Import authentication strategies
 import jwt from 'jsonwebtoken';
+import mysql from 'mysql2/promise'; // ✅ NEW: mysql2 for Railway
 
-import { ensureContainerExists } from './azureBlobService.js'; // Import Azure Blob Service logic
+// Use Blackbase B2 instead
+import { uploadFile, listFiles, deleteFile, downloadFile, getSignedUrl } from './b2StorageService.js';
 
 dotenv.config();
 
-const config = {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  server: process.env.DB_SERVER,
-  database: process.env.DB_DATABASE,
-  options: {
-    encrypt: true, // Use encryption
-    enableArithAbort: true
-  }
-};
-// const config = process.env.DATABASE_URI;
+// ✅ MySQL connection config (Railway)
+const pool = mysql.createPool({
+  host: process.env.MYSQL_HOST, // from Railway
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DATABASE,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
 // Import App routes
 import routes from './routes.js';
-import authRoutes from './authRoutes.js'; // Use import instead of require
-import blobroutes from './blobRoutes.js'; // Import routes for Azure Blob Service
-import preset from './passwordResetRoutes.js' // Import password reset routes
-import pdfRoutes from './pdfRoutes.js'; // Import PDF generation routes
-import excelRoutes from './excelRoutes.js'; // Import Excel generation routes
+import authRoutes from './authRoutes.js';
+import blobroutes from './blobRoutes.js';
+import preset from './passwordResetRoutes.js';
+import pdfRoutes from './pdfRoutes.js';
+import excelRoutes from './excelRoutes.js';
 
 const port = process.env.PORT || 3000;
 
@@ -42,10 +43,7 @@ const allowedOrigins = [
   'http://192.168.0.149:5173'
 ];
 
-// Use the CORS middleware to allow all origins
-// app.use(cors({
-//   origin: ['https://sme-loan.onrender.com','https://929f-197-210-54-14.ngrok-free.app', 'http://localhost:5173', 'http://192.168.0.149:5173'],
-// }));
+// CORS Middleware
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -56,15 +54,7 @@ app.use(cors({
   }
 }));
 
-// Middleware to set headers explicitly
-// app.use((req, res, next) => {
-//   res.setHeader('Access-Control-Allow-Origin', 'https://sme-loan.onrender.com');
-//   res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
-//   // res.setHeader('Access-Control-Allow-Credentials', 'true');
-//   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-//   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-//   next();
-// });
+// Explicit header setting middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
@@ -75,11 +65,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware for parsing JSON and urlencoded form data
+// JSON & form data middleware
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Middleware to check if user is authenticated using JWT
+// JWT Auth middleware
 function isAuthenticated(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
@@ -91,61 +81,66 @@ function isAuthenticated(req, res, next) {
     req.user = decoded;
     next();
   } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    }
     res.status(401).json({ error: 'Invalid token' });
   }
 }
 
+// Request logger
 console.log('Starting server...');
 app.use((req, res, next) => {
-  console.log("A request was made! ", req.body);
-  // console.log('Session Data:', req.session);
+  if (process.env.NODE_ENV === 'development') {
+    console.log("Request received: ", req.body);
+  }
   next();
 });
 
-// Connect App routes
+// Connect routes
 app.use('/auth', authRoutes);
-// Simple login route for testing
-app.get('/test', (req, res) => {
-  console.log('we are testing it!')
-  res.send('Login Page');
+
+// ✅ Test MySQL connection
+app.get('/test', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM Users');
+    console.log(rows);
+    res.json(rows);
+  } catch (error) {
+    console.error('MySQL Test Error:', error);
+    res.status(500).send('MySQL connection test failed.');
+  }
 });
 
+// Dummy session routes
 app.get('/session-test', (req, res) => {
-  // req.session.test = 'Session is working!';
-  res.send('Session set, now refresh!');
+  res.send('Session test');
 });
 app.get('/session-check', (req, res) => {
-  // res.send(req.session.test || 'Session not found!');
-  res.send('Session not found!');
+  res.send('Session check');
 });
 
-// app.use('/routes', isAuthenticated, routes);
+// Protected routes
 app.use('/routes', isAuthenticated, routes);
 
-// app.use('*', (_, res) => {
-//   res.redirect('/api-docs');
-// });
-
-// Ensure the Azure Blob Storage container exists
-// Ensure the Azure Blob Storage container exists before starting the server
-ensureContainerExists().catch((error) => {
-  console.error("Error ensuring container exists:", error);
-  process.exit(1); // Exit the process if container creation fails
-});
-
-// Connect Azure Blob Service routes
+// Blob, reset, pdf, excel
 app.use('/blob', blobroutes);
-
-// Connect password reset routes
 app.use('/reset', preset);
-
-// Connect PDF generation routes
 app.use('/pdf', pdfRoutes);
-
-// Connect Excel generation routes
 app.use('/excel', excelRoutes);
 
-// Start the server
+// 404 fallback
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not Found' });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled Error:', err);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
+
+// Start server
 app.listen(port, () => {
   console.log(`Server started on port ${port}`);
 });
