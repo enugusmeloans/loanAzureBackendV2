@@ -35,19 +35,45 @@ const port = process.env.PORT || 3000;
 
 const app = express();
 
+const allowedOrigins = [
+  'https://sme-loan.onrender.com',
+  'https://929f-197-210-54-14.ngrok-free.app',
+  'http://localhost:5173',
+  'http://192.168.0.149:5173',
+];
+
 // Use the CORS middleware to allow all origins
+// app.use(cors({
+//   origin: ['https://sme-loan.onrender.com','https://929f-197-210-54-14.ngrok-free.app', 'http://localhost:5173', 'http://192.168.0.149:5173'],
+// }));
 app.use(cors({
-  origin: ['https://sme-loan.onrender.com','https://929f-197-210-54-14.ngrok-free.app', 'http://localhost:5173', 'http://192.168.0.149:5173'],
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
 }));
 
 // Middleware to set headers explicitly
 // app.use((req, res, next) => {
+//   res.setHeader('Access-Control-Allow-Origin', 'https://sme-loan.onrender.com');
 //   res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
-//   res.setHeader('Access-Control-Allow-Credentials', 'true');
+//   // res.setHeader('Access-Control-Allow-Credentials', 'true');
 //   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 //   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
 //   next();
 // });
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  next();
+});
 
 // Middleware for parsing JSON and urlencoded form data
 app.use(express.json({ limit: '5mb' }));
