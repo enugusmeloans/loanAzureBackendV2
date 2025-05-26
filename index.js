@@ -39,7 +39,7 @@ const allowedOrigins = [
   'https://sme-loan.onrender.com',
   'https://929f-197-210-54-14.ngrok-free.app',
   'http://localhost:5173',
-  'http://192.168.0.149:5173',
+  'http://192.168.0.149:5173'
 ];
 
 // Use the CORS middleware to allow all origins
