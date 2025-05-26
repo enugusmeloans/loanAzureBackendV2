@@ -1,46 +1,27 @@
-// const url = 'https://api.qoreid.com/token';
-// const options = {
-//   method: 'POST',
-//   headers: {accept: 'text/plain', 'content-type': 'application/json'},
-//   body: JSON.stringify({clientId: 'VNK643HLSCNEYKZW71DH', secret: '7825905bf8c1489281f2b7888159f77b'})
-// };
+// import mysql from 'mysql2/promise';
+// import dotenv from 'dotenv';
 
-// fetch(url, options)
-//   .then(res => res.json())
-//   .then(json => console.log(json))
-//   .catch(err => console.error(err));
+// dotenv.config();
 
-// console.log("Have a nice day!");
-
-// test blaze connection
-// import { listFiles } from './b2StorageService.js';
-
-// console.log('B2_KEY_ID:', process.env.B2_KEY_ID);
-// console.log('B2_APP_KEY:', process.env.B2_APP_KEY);
-
-// (async () => {
+// async function testConnection() {
 //   try {
-//     const files = await listFiles();
-//     console.log('✅ Files in bucket:', files);
+//     // Use the public Railway connection string
+//     const dbUrl = new URL(process.env.DATABASE_PUBLIC_URI.replace(/^"|"$/g, ''));
+//     const connection = await mysql.createConnection({
+//       host: dbUrl.hostname,
+//       port: dbUrl.port,
+//       user: dbUrl.username,
+//       password: dbUrl.password,
+//       database: dbUrl.pathname.replace(/^\//, ''),
+//     });
+//     console.log('Connected to Railway MySQL!');
+//     const [rows] = await connection.query('SELECT NOW() as now');
+//     console.log('Test query result:', rows);
+//     await connection.end();
 //   } catch (err) {
-//     console.error('❌ Error communicating with B2:', err.message);
+//     console.error('Connection failed:', err);
 //   }
-// })();
+// }
 
+// testConnection();
 
-async function testUploadFromDisk(filePath) {
-  await authorizeB2();
-  const buffer = fs.readFileSync(filePath);
-  const fileName = path.basename(filePath);
-  const uploadUrlResponse = await b2.getUploadUrl({ bucketId });
-
-  await b2.uploadFile({
-    uploadUrl: uploadUrlResponse.data.uploadUrl,
-    uploadAuthToken: uploadUrlResponse.data.authorizationToken,
-    fileName,
-    data: buffer,
-    mime: 'application/octet-stream', // or set dynamically
-  });
-
-  console.log(`✅ Uploaded: ${fileName}`);
-}

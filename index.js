@@ -13,16 +13,37 @@ import { uploadFile, listFiles, deleteFile, downloadFile, getSignedUrl } from '.
 
 dotenv.config();
 
-// ✅ MySQL connection config (Railway)
-const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST, // from Railway
-  user: process.env.MYSQL_USER,
-  password: process.env.MYSQL_PASSWORD,
-  database: process.env.MYSQL_DATABASE,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+// Database connection config for Railway
+let dbConfig;
+if (process.env.NODE_ENV === 'production') {
+  // Internal connection for production (Railway only)
+  dbConfig = {
+    host: process.env.MYSQL_HOST || 'mysql.railway.internal',
+    port: 3306,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DATABASE,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+  };
+} else {
+  // Public connection for development (and fallback for local/any env)
+  // Parse from DATABASE_PUBLIC_URI
+  const dbUrl = new URL(process.env.DATABASE_PUBLIC_URI.replace(/^"|"$/g, ''));
+  dbConfig = {
+    host: dbUrl.hostname,
+    port: dbUrl.port,
+    user: dbUrl.username,
+    password: dbUrl.password,
+    database: dbUrl.pathname.replace(/^\//, ''),
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+  };
+}
+
+const pool = mysql.createPool(dbConfig);
 
 // Import App routes
 import routes from './routes.js';
