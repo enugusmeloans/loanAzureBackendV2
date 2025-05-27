@@ -12,8 +12,8 @@ dotenv.config();
 const config = process.env.DATABASE_URI;
 
 // Debug statements to check environment variables
-// console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
-// console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
+console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
+console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
 
 // Configure the local strategy
 passport.use(new LocalStrategy(
