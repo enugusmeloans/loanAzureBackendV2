@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 
 dotenv.config();
-console.log("B2 is: " ,B2)
+// console.log("B2 is: " ,B2)
 const b2 = new B2({
   applicationKeyId: process.env.B2_KEY_ID,
   applicationKey: process.env.B2_APP_KEY,

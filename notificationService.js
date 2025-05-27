@@ -1,5 +1,6 @@
-import sql from "mssql";
+import mysql from "mysql2/promise";
 
+const config = process.env.NODE_ENV === "production" ? process.env.DATABASE_URI : process.env.DATABASE_PUBLIC_URI;
 /**
  * Function to store a notification in the Notifications table.
  * @param {string} title - The title of the notification.
@@ -9,18 +10,12 @@ import sql from "mssql";
  */
 export async function storeNotification(title, userId, body) {
   try {
-    const poolConnection = await sql.connect(process.env.DATABASE_URI);
-
-    await poolConnection.request()
-      .input("title", sql.VarChar, title)
-      .input("userId", sql.Int, userId)
-      .input("body", sql.Text, body)
-      .query(`
-        INSERT INTO Notifications (title, userId, body, createdAt)
-        VALUES (@title, @userId, @body, GETDATE())
-      `);
-
-    poolConnection.close();
+    const poolConnection = await mysql.createConnection(config);
+    await poolConnection.execute(
+      `INSERT INTO Notifications (title, userId, body, createdAt) VALUES (?, ?, ?, NOW())`,
+      [title, userId, body]
+    );
+    await poolConnection.end();
   } catch (error) {
     console.error("Error storing notification:", error);
     // throw new Error("Failed to store notification");

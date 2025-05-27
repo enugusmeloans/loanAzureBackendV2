@@ -1,6 +1,6 @@
 import express from "express";
 import { uploadFile, listFiles, deleteFile, getSignedUrl } from './b2StorageService.js';
-import sql from "mssql"; // Import SQL for database operations
+import mysql from 'mysql2/promise'; // Use mysql2 for Railway
 import jwt from "jsonwebtoken"; // Import JWT for authentication
 import archiver from "archiver"; // Import archiver for zipping files
 import { storeNotification } from "./notificationService.js";
@@ -36,14 +36,13 @@ async function isAdmin(req, res, next) {
     return res.status(403).json({ error: "Forbidden" });
   }
   try {
-    const poolConnection = await sql.connect(process.env.DATABASE_URI);
-    const result = await poolConnection.request()
-      .input('adminId', sql.VarChar, req.user.adminId)
-      .query('SELECT * FROM dbo.Admins WHERE adminId = @adminId');
-
-    const admin = result.recordset[0];
-    poolConnection.close();
-
+    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
+    const [rows] = await poolConnection.execute(
+      'SELECT * FROM Admins WHERE adminId = ?',
+      [req.user.adminId]
+    );
+    const admin = rows[0];
+    await poolConnection.end();
     if (admin && admin.userId === req.user.userId) {
       return next();
     } else {
@@ -139,40 +138,34 @@ router.post("/upload-documents", upload.fields([
       return res.status(400).json({ success: false, message: "All document images are required" });
     }
 
-    const poolConnection = await sql.connect(process.env.DATABASE_URI);
+    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
 
     // Check if the application's loanStatus is "Accepted1"
-    const applicationResult = await poolConnection.request()
-      .input("applicationId", sql.Int, applicationId)
-      .query(`
-                SELECT loanStatus 
-                FROM dbo.Applications 
-                WHERE applicationId = @applicationId
-            `);
+    const [applicationRows] = await poolConnection.execute(
+      'SELECT loanStatus FROM Applications WHERE applicationId = ?',
+      [applicationId]
+    );
 
-    if (applicationResult.recordset.length === 0) {
-      poolConnection.close();
+    if (applicationRows.length === 0) {
+      await poolConnection.end();
       return res.status(404).json({ success: false, message: "Application not found" });
     }
 
-    const { loanStatus } = applicationResult.recordset[0];
+    const { loanStatus } = applicationRows[0];
     if (loanStatus !== "Accepted1") {
-      poolConnection.close();
+      await poolConnection.end();
       return res.status(400).json({ success: false, message: "Application is ineligible for document upload" });
     }
 
     // Check if the application already exists in the database
-    const existingRecord = await poolConnection.request()
-      .input("applicationId", sql.Int, applicationId)
-      .query(`
-                SELECT IdCardLink, businessCertificateLink
-                FROM dbo.UploadDocuments
-                WHERE applicationId = @applicationId
-            `);
+    const [existingRows] = await poolConnection.execute(
+      'SELECT IdCardLink, businessCertificateLink FROM UploadDocuments WHERE applicationId = ?',
+      [applicationId]
+    );
 
-    if (existingRecord.recordset.length > 0) {
+    if (existingRows.length > 0) {
       // Delete previous images from Azure Blob Storage
-      const previousImages = existingRecord.recordset[0];
+      const previousImages = existingRows[0];
       if (previousImages.IdCardLink) await deleteFile(previousImages.IdCardLink.split("/").pop());
       if (previousImages.businessCertificateLink) await deleteFile(previousImages.businessCertificateLink.split("/").pop());
 
@@ -180,45 +173,29 @@ router.post("/upload-documents", upload.fields([
       const idCardUrl = await uploadFile(req.files.idCard[0]);
       const businessCertificateUrl = await uploadFile(req.files.businessCertificate[0]);
 
-      await poolConnection.request()
-        .input("applicationId", sql.Int, applicationId)
-        .input("idCardLink", sql.VarChar, idCardUrl)
-        .input("businessCertificateLink", sql.VarChar, businessCertificateUrl)
-        .input("CAC", sql.BigInt, CAC)
-        .query(`
-                    UPDATE dbo.UploadDocuments
-                    SET IdCardLink = @idCardLink,
-                        businessCertificateLink = @businessCertificateLink,
-                        CAC = @CAC
-                    WHERE applicationId = @applicationId
-                `);
+      await poolConnection.execute(
+        'UPDATE UploadDocuments SET IdCardLink = ?, businessCertificateLink = ?, CAC = ? WHERE applicationId = ?',
+        [idCardUrl, businessCertificateUrl, CAC, applicationId]
+      );
 
-      // Update loanStatus to "Pending"
-      await poolConnection.request()
-        .input("applicationId", sql.Int, applicationId)
-        .input("loanStatus", sql.VarChar, "Pending")
-        .query(`
-                    UPDATE dbo.Applications
-                    SET loanStatus = @loanStatus
-                    WHERE applicationId = @applicationId
-                `);
+      await poolConnection.execute(
+        'UPDATE Applications SET loanStatus = ? WHERE applicationId = ?',
+        ["Pending", applicationId]
+      );
 
-      // Use applicationId to get userId
-      const userResult = await poolConnection.request()
-        .input("applicationId", sql.Int, applicationId)
-        .query(`
-          SELECT userId 
-          FROM dbo.Applications 
-          WHERE applicationId = @applicationId
-        `);
+      // Get userId
+      const [userRows] = await poolConnection.execute(
+        'SELECT userId FROM Applications WHERE applicationId = ?',
+        [applicationId]
+      );
 
-      if (userResult.recordset.length === 0) {
-        poolConnection.close();
+      if (userRows.length === 0) {
+        await poolConnection.end();
         return res.status(404).json({ success: false, message: "User not found for the given application" });
       }
 
-      const { userId } = userResult.recordset[0];
-      poolConnection.close()
+      const { userId } = userRows[0];
+      await poolConnection.end();
 
       // Send an email notification to the user
       await sendEmail(userId, "Documents Uploaded", "Your documents have been uploaded successfully.");
@@ -239,42 +216,29 @@ router.post("/upload-documents", upload.fields([
       const idCardUrl = await uploadFile(req.files.idCard[0]);
       const businessCertificateUrl = await uploadFile(req.files.businessCertificate[0]);
 
-      await poolConnection.request()
-        .input("applicationId", sql.Int, applicationId)
-        .input("idCardLink", sql.VarChar, idCardUrl)
-        .input("businessCertificateLink", sql.VarChar, businessCertificateUrl)
-        .input("CAC", sql.VarChar, CAC)
-        .query(`
-                    INSERT INTO dbo.UploadDocuments (applicationId, IdCardLink, businessCertificateLink, CAC)
-                    VALUES (@applicationId, @idCardLink, @businessCertificateLink, @CAC)
-                `);
+      await poolConnection.execute(
+        'INSERT INTO UploadDocuments (applicationId, IdCardLink, businessCertificateLink, CAC) VALUES (?, ?, ?, ?)',
+        [applicationId, idCardUrl, businessCertificateUrl, CAC]
+      );
 
-      // Update loanStatus to "Pending"
-      await poolConnection.request()
-        .input("applicationId", sql.Int, applicationId)
-        .input("loanStatus", sql.VarChar, "Pending")
-        .query(`
-                    UPDATE dbo.Applications
-                    SET loanStatus = @loanStatus
-                    WHERE applicationId = @applicationId
-                `);
+      await poolConnection.execute(
+        'UPDATE Applications SET loanStatus = ? WHERE applicationId = ?',
+        ["Pending", applicationId]
+      );
       
-       // Use applicationId to get userId
-      const userResult = await poolConnection.request()
-        .input("applicationId", sql.Int, applicationId)
-        .query(`
-          SELECT userId 
-          FROM dbo.Applications 
-          WHERE applicationId = @applicationId
-        `);
+      // Get userId
+      const [userRows] = await poolConnection.execute(
+        'SELECT userId FROM Applications WHERE applicationId = ?',
+        [applicationId]
+      );
 
-      if (userResult.recordset.length === 0) {
-        poolConnection.close();
+      if (userRows.length === 0) {
+        await poolConnection.end();
         return res.status(404).json({ success: false, message: "User not found for the given application" });
       }
 
-      const { userId } = userResult.recordset[0];
-      poolConnection.close()
+      const { userId } = userRows[0];
+      await poolConnection.end();
 
       // Store notification in the database
       await storeNotification("Documents Uploaded Successfully", userId, "Your Documents have been uploaded. Please await final approval")
@@ -308,24 +272,21 @@ router.get("/application-images/:applicationId", async (req, res) => {
     // Validate applicationId
     if (!applicationId) return res.status(400).json({ success: false, message: "Application ID is required" }); 
 
-    const poolConnection = await sql.connect(process.env.DATABASE_URI);
+    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
 
     // Fetch the image URLs from the database
-    const result = await poolConnection.request()
-      .input("applicationId", sql.Int, applicationId)
-      .query(`
-                SELECT IdCardLink, businessCertificateLink
-                FROM dbo.UploadDocuments
-                WHERE applicationId = @applicationId
-            `);
+    const [rows] = await poolConnection.execute(
+      'SELECT IdCardLink, businessCertificateLink FROM UploadDocuments WHERE applicationId = ?',
+      [applicationId]
+    );
 
-    poolConnection.close();
+    await poolConnection.end();
 
-    if (result.recordset.length === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: "No images found for this application" });
     }
 
-    const { IdCardLink, businessCertificateLink } = result.recordset[0];
+    const { IdCardLink, businessCertificateLink } = rows[0];
 
     // Generate SAS tokens for the image URLs
     const idCardSasUrl = IdCardLink ? await generateSasUrl(IdCardLink) : null;
@@ -357,24 +318,21 @@ router.get("/download-application-images/:applicationId", async (req, res) => {
       return res.status(400).json({ success: false, message: "Application ID is required" });
     }
 
-    const poolConnection = await sql.connect(process.env.DATABASE_URI);
+    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
 
     // Fetch the image URLs from the database
-    const result = await poolConnection.request()
-      .input("applicationId", sql.Int, applicationId)
-      .query(`
-        SELECT IdCardLink, businessCertificateLink
-        FROM dbo.UploadDocuments
-        WHERE applicationId = @applicationId
-      `);
+    const [rows] = await poolConnection.execute(
+      'SELECT IdCardLink, businessCertificateLink FROM UploadDocuments WHERE applicationId = ?',
+      [applicationId]
+    );
 
-    poolConnection.close();
+    await poolConnection.end();
 
-    if (result.recordset.length === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: "No images found for this application" });
     }
 
-    const { IdCardLink, businessCertificateLink } = result.recordset[0];
+    const { IdCardLink, businessCertificateLink } = rows[0];
 
     // Validate that at least one image exists
     if (!IdCardLink && !businessCertificateLink) {

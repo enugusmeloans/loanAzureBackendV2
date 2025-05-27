@@ -4,16 +4,16 @@ import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import { OAuth2Strategy as GoogleStrategy } from 'passport-google-oauth';
 import dotenv from 'dotenv';
-import sql from 'mssql';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import mysql from 'mysql2/promise'; // Use mysql2 for Railway compatibility
 
 dotenv.config();
-const config = process.env.DATABASE_URI;
+const config = process.env.NODE_ENV === "production" ? process.env.DATABASE_URI : process.env.DATABASE_PUBLIC_URI;
 
 // Debug statements to check environment variables
-console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
-console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
+// console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
+// console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
 
 // Configure the local strategy
 passport.use(new LocalStrategy(
@@ -23,13 +23,18 @@ passport.use(new LocalStrategy(
   },
   async (email, password, done) => {
     try {
-      const poolConnection = await sql.connect(config);
-      const result = await poolConnection.request()
-        .input('email', sql.VarChar, email)
-        .query('SELECT * FROM dbo.Users WHERE userEmail = @email');
-
-      const user = result.recordset[0];
-      poolConnection.close();
+      // Use mysql2/promise for Railway compatibility
+      const dbUrl = new URL((process.env.NODE_ENV === 'production' ? process.env.DATABASE_URI : process.env.DATABASE_PUBLIC_URI).replace(/^"|"$/g, ''));
+      const poolConnection = await mysql.createConnection({
+        host: dbUrl.hostname,
+        port: dbUrl.port,
+        user: dbUrl.username,
+        password: dbUrl.password,
+        database: dbUrl.pathname.replace(/^\//, ''),
+      });
+      const [rows] = await poolConnection.execute('SELECT * FROM Users WHERE userEmail = ?', [email]);
+      const user = rows[0];
+      await poolConnection.end();
 
       if (!user) {
         console.log('Incorrect email.');
@@ -59,46 +64,28 @@ passport.use(new GoogleStrategy(
   async (token, tokenSecret, profile, done) => {
     try {
       console.log('Google profile:', profile);
-      const poolConnection = await sql.connect(config);
-      let result = await poolConnection.request()
-        .input('googleId', sql.VarChar, profile.id)
-        .query('SELECT * FROM dbo.Users WHERE oauthId = @googleId');
-
-      let user = result.recordset[0];
+      const poolConnection = await mysql.createConnection(config);
+      // Try to find user by oauthId
+      let [rows] = await poolConnection.execute('SELECT * FROM Users WHERE oauthId = ?', [profile.id]);
+      let user = rows[0];
 
       if (!user) {
         // Check if a user with the email already exists
-        result = await poolConnection.request()
-          .input('email', sql.VarChar, profile.emails[0].value)
-          .query('SELECT * FROM dbo.Users WHERE userEmail = @email');
-
-        user = result.recordset[0];
+        [rows] = await poolConnection.execute('SELECT * FROM Users WHERE userEmail = ?', [profile.emails[0].value]);
+        user = rows[0];
 
         if (user) {
-          // Update the oauthId for the existing user -- maybe a worry point here
-          // I mean if google can verify the user, then surely updating the oauthId is fine.
-          // else we will have to check if the user's oauthId is null or not. if it is null, then we can update it. 
-          // if it is not null, then we can't update it and will send a response that user already exists. 
-          await poolConnection.request()
-            .input('googleId', sql.VarChar, profile.id)
-            .input('email', sql.VarChar, profile.emails[0].value)
-            .query('UPDATE dbo.Users SET oauthId = @googleId WHERE userEmail = @email');
+          // Update the oauthId for the existing user
+          await poolConnection.execute('UPDATE Users SET oauthId = ? WHERE userEmail = ?', [profile.id, profile.emails[0].value]);
         } else {
           // Insert a new user record
-          await poolConnection.request()
-            .input('googleId', sql.VarChar, profile.id)
-            .input('email', sql.VarChar, profile.emails[0].value)
-            .query('INSERT INTO dbo.Users (oauthId, userEmail) VALUES (@googleId, @email)');
+          await poolConnection.execute('INSERT INTO Users (oauthId, userEmail) VALUES (?, ?)', [profile.id, profile.emails[0].value]);
         }
-
-        result = await poolConnection.request()
-          .input('googleId', sql.VarChar, profile.id)
-          .query('SELECT * FROM dbo.Users WHERE oauthId = @googleId');
-
-        user = result.recordset[0];
+        // Fetch the user again by oauthId
+        [rows] = await poolConnection.execute('SELECT * FROM Users WHERE oauthId = ?', [profile.id]);
+        user = rows[0];
       }
-
-      poolConnection.close();
+      await poolConnection.end();
       return done(null, user);
     } catch (err) {
       return done(err);

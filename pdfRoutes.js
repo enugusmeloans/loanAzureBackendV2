@@ -1,13 +1,13 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import express from 'express';
-import sql from 'mssql';
 import dotenv from 'dotenv';
+import mysql from 'mysql2/promise'; // Use mysql2 for promise-based queries
 
 dotenv.config();
 
 const router = express.Router();
-const config = process.env.DATABASE_URI;
+const config = process.env.NODE_ENV === "production" ? process.env.DATABASE_URI : process.env.DATABASE_PUBLIC_URI;
 
 // Function to generate a PDF with a custom header, body, and footer
 function generatePDF(data, filePath, headerText, footerText) {
@@ -57,24 +57,24 @@ function generatePDF(data, filePath, headerText, footerText) {
 // Endpoint to generate and download a PDF for all rejected applications
 router.get('/download-rejected-applications', async (req, res) => {
     try {
-        const poolConnection = await sql.connect(config);
+        const poolConnection = await mysql.createConnection(config);
 
         // Query to fetch all rejected applications
-        const result = await poolConnection.request().query(`
+        const [rows] = await poolConnection.execute(`
             SELECT 
                 Applications.applicationId,
                 PersonalInfo.fullName AS applicantName,
                 BusinessInfo.businessName,
                 Applications.loanStatus
-            FROM dbo.Applications
-            INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
-            INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            FROM Applications
+            INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
             WHERE Applications.loanStatus = 'Rejected1' OR Applications.loanStatus = 'Rejected2'
         `);
 
-        poolConnection.close();
+        await poolConnection.end();
 
-        const data = result.recordset;
+        const data = rows;
 
         if (data.length === 0) {
             return res.status(404).json({ error: 'No rejected applications found' });
@@ -108,24 +108,24 @@ router.get('/download-rejected-applications', async (req, res) => {
 // Endpoint to generate and download a PDF for applications with loanStatus of Accepted1
 router.get('/download-accepted1-applications-pdf', async (req, res) => {
     try {
-        const poolConnection = await sql.connect(config);
+        const poolConnection = await mysql.createConnection(config);
 
         // Query to fetch all detailed data for applications with loanStatus of Accepted1
-        const result = await poolConnection.request().query(`
+        const [rows] = await poolConnection.execute(`
             SELECT 
                 Applications.applicationId,
                 PersonalInfo.fullName AS applicantName,
                 BusinessInfo.businessName,
                 Applications.loanStatus
-            FROM dbo.Applications
-            INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
-            INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            FROM Applications
+            INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
             WHERE Applications.loanStatus = 'Accepted1'
         `);
 
-        poolConnection.close();
+        await poolConnection.end();
 
-        const data = result.recordset;
+        const data = rows;
 
         if (data.length === 0) {
             return res.status(404).json({ error: 'No applications with loanStatus of Accepted1 found' });
@@ -159,24 +159,24 @@ router.get('/download-accepted1-applications-pdf', async (req, res) => {
 // Endpoint to generate and download a PDF for applications with loanStatus of Accepted2
 router.get('/download-accepted2-applications-pdf', async (req, res) => {
     try {
-        const poolConnection = await sql.connect(config);
+        const poolConnection = await mysql.createConnection(config);
 
         // Query to fetch all detailed data for applications with loanStatus of Accepted2
-        const result = await poolConnection.request().query(`
+        const [rows] = await poolConnection.execute(`
             SELECT 
                 Applications.applicationId,
                 PersonalInfo.fullName AS applicantName,
                 BusinessInfo.businessName,
                 Applications.loanStatus
-            FROM dbo.Applications
-            INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
-            INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            FROM Applications
+            INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
             WHERE Applications.loanStatus = 'Accepted2'
         `);
 
-        poolConnection.close();
+        await poolConnection.end();
 
-        const data = result.recordset;
+        const data = rows;
 
         if (data.length === 0) {
             return res.status(404).json({ error: 'No applications with loanStatus of Accepted2 found' });
@@ -210,24 +210,24 @@ router.get('/download-accepted2-applications-pdf', async (req, res) => {
 // Endpoint to generate and download a PDF for applications with loanStatus of Resubmit
 router.get('/download-resubmit-applications-pdf', async (req, res) => {
     try {
-        const poolConnection = await sql.connect(config);
+        const poolConnection = await mysql.createConnection(config);
 
         // Query to fetch all detailed data for applications with loanStatus of Resubmit
-        const result = await poolConnection.request().query(`
+        const [rows] = await poolConnection.execute(`
             SELECT 
                 Applications.applicationId,
                 PersonalInfo.fullName AS applicantName,
                 BusinessInfo.businessName,
                 Applications.loanStatus
-            FROM dbo.Applications
-            INNER JOIN dbo.PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
-            INNER JOIN dbo.BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            FROM Applications
+            INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
             WHERE Applications.loanStatus = 'Resubmit'
         `);
 
-        poolConnection.close();
+        await poolConnection.end();
 
-        const data = result.recordset;
+        const data = rows;
 
         if (data.length === 0) {
             return res.status(404).json({ error: 'No applications with loanStatus of Resubmit found' });

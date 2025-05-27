@@ -6,11 +6,12 @@ import sql from 'mssql';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import mysql from 'mysql2/promise'; // Use mysql2 for Railway compatibility
 
 dotenv.config();
 
 const router = express.Router();
-const config = process.env.DATABASE_URI;
+const config = process.env.NODE_ENV === "production" ? process.env.DATABASE_URI : process.env.DATABASE_PUBLIC_URI;
 const jwtSecret = process.env.JWT_SECRET; // Ensure this is set in your environment variables
 
 // Local authentication routes
@@ -31,65 +32,79 @@ router.post('/login', (req, res, next) => {
 
 router.post('/signup', async (req, res) => {
   try {
-    const { email, password,phoneNumber } = req.body;
+    const { email, password, phoneNumber } = req.body;
     const hashedPassword = await bcrypt.hash(password, 10);
     const userName = email.split('@')[0];
-    const poolConnection = await sql.connect(config);
 
-    const result = await poolConnection.request()
-      .input('email', sql.VarChar, email)
-      .query('SELECT * FROM dbo.Users WHERE userEmail = @email');
+    const poolConnection = await mysql.createConnection(config);
 
-    // Check if the user already exists
-    if (result.recordset.length > 0) {
-      const user = result.recordset[0];
-      // If the user exists but has no password, update the password
-      // Otherwise, return an error message
+    // Check if user already exists
+    console.log('Checking if user exists with email:', email);
+    const [existingUserRows] = await poolConnection.query(
+      'SELECT * FROM Users WHERE userEmail = ?',
+      [email]
+    );
+
+    if (existingUserRows.length > 0) {
+      const user = existingUserRows[0];
+
       if (user.userPassword === null) {
-        await poolConnection.request()
-          .input('email', sql.VarChar, email)
-          .input('password', sql.VarChar, hashedPassword)
-          .query('UPDATE dbo.Users SET userPassword = @password WHERE userEmail = @email');
-          
+        console.log('User exists with no password, updating password');
+        // User exists with no password (OAuth user) - update password
+        await poolConnection.query(
+          'UPDATE Users SET userPassword = ? WHERE userEmail = ?',
+          [hashedPassword, email]
+        );
       } else {
-        poolConnection.close();
+        // User exists with a password already
+        await poolConnection.end();
         return res.status(400).json({ success: false, message: 'User already exists' });
       }
     } else {
-      // If the user does not exist, create a new user
-      await poolConnection.request()
-        .input('email', sql.VarChar, email)
-        .input('password', sql.VarChar, hashedPassword)
-        .input('userName', sql.VarChar, userName)
-        .query('INSERT INTO dbo.Users (userEmail, userPassword, userName) VALUES (@email, @password, @userName)');
-
-      const userIdResult = await poolConnection.request()
-        .input('email', sql.VarChar, email)
-        .query('SELECT userId FROM dbo.Users WHERE userEmail = @email');
-
-      if (userIdResult.recordset.length === 0) {
-        throw new Error('User ID not found after user creation');
-      }
-
-      const userId = userIdResult.recordset[0].userId;
-
-      await poolConnection.request()
-        .input('userId', sql.Int, userId)
-        .input('phoneNumber', sql.BigInt, phoneNumber)
-        .query('INSERT INTO dbo.ExtraUserDetails (userId, phoneNumber) VALUES (@userId, @phoneNumber)');
+      // Insert new user
+      await poolConnection.query(
+        'INSERT INTO Users (userEmail, userPassword, userName) VALUES (?, ?, ?)',
+        [email, hashedPassword, userName]
+      );
     }
 
+    // Get userId for ExtraUserDetails
+    console.log('Fetching userId for ExtraUserDetails:', email);
+    const [userIdRows] = await poolConnection.query(
+      'SELECT userId FROM Users WHERE userEmail = ?',
+      [email]
+    );
 
-    // Generate a JWT token for the user
-    // Exclude the password from the user object before signing the token
-    const userWithoutPassword = { userEmail: email, userName:userName, phoneNumber:phoneNumber };
+    if (userIdRows.length === 0) {
+      throw new Error('User ID not found after user creation');
+    }
+
+    const userId = userIdRows[0].userId;
+
+    // Insert ExtraUserDetails
+    await poolConnection.query(
+      'INSERT INTO ExtraUserDetails (userId, phoneNumber) VALUES (?, ?)',
+      [userId, phoneNumber]
+    );
+
+    // JWT
+    const userWithoutPassword = { userEmail: email, userName, phoneNumber };
     const token = jwt.sign(userWithoutPassword, jwtSecret, { expiresIn: '3h' });
 
-    poolConnection.close();
-    res.status(200).json({ success:true, message: 'Signed up', data:{ user: userWithoutPassword, token } });
+    await poolConnection.end();
+
+    res.status(200).json({
+      success: true,
+      message: 'Signed up',
+      data: { user: userWithoutPassword, token },
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ success:false, message: 'Error Signing Up', data:{ error: err.message } });
+    console.error('Signup Error:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Error Signing Up',
+      data: { error: err.message },
+    });
   }
 });
 
