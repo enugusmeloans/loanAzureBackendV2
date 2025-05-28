@@ -491,7 +491,7 @@ router.post('/get-all-applications',isAdmin, async (req, res) => {
             return res.status(400).json({ success: false, message: 'From value exceeds total number of applications', data: { totalApplications:totalApplications } }); // Validate start value
         }
 
-        const adjustedTo = Math.min(end, totalApplications); // Adjust end value if it exceeds total applications
+        const adjustedTo = Math.min(To, totalApplications); // Adjust end value if it exceeds total applications
         console.log("Adjusted To value:", adjustedTo);
 
         const offset = From - 1; // Calculate the starting index for pagination
@@ -1118,6 +1118,8 @@ router.post('/upload-profile-picture', isAuthenticated, upload.single("profilePi
         // Update the user's profile picture fileName in the database
         await poolConnection.execute('UPDATE ExtraUserDetails SET profilePicture = ? WHERE userId = ?', [fileName, userId]);
         poolConnection.close();
+        console.log("Profile picture uploaded successfully:", fileName);
+        // Return success response
         res.status(200).json({ success: true, message: 'Profile picture uploaded successfully', data: { fileName } });
     } catch (err) {
         console.error('Error uploading profile picture:', err.message);
@@ -1206,6 +1208,7 @@ router.get('/get-user-details/:userId', async (req, res) => {
         const profilePictureFileName = extraDetailsResult[0].profilePicture;
         if (profilePictureFileName) {
             const signedUrl = await getSignedUrl(profilePictureFileName);
+            console.log("Profile picture signed URL:", signedUrl);
             extraDetailsResult[0].profilePicture = signedUrl;
         }
 
