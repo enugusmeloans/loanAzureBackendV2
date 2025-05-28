@@ -1037,6 +1037,7 @@ const upload = multer({ storage });
 
 // Updated /extra-user-details endpoint to handle profile picture upload
 router.post('/extra-user-details', async (req, res) => {
+    console.log("extra user body",req.body)
     try {
         const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob } = req.body;
 
@@ -1093,7 +1094,7 @@ router.post('/extra-user-details', async (req, res) => {
         poolConnection.close();
         res.status(200).json({ success: true, message: "User details updated successfully", data:{ verified: true, userId: userId, firstName: firstName, lastName: lastName, otherName: otherName, dob:dob, phoneNumber: phoneNumber, contactEmail: contactEmail, address: address, LGA: LGA, stateOfOrigin: stateOfOrigin }});
     } catch (err) {
-        console.error("Error updating user details:", err.message);
+        console.error("Error updating user details:", err);
         res.status(500).json({ success: false, error: "Failed to update user details", data: {verified: false} });
     }
 });
