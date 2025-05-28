@@ -1493,7 +1493,7 @@ router.get('/get-notifications/:userId', async (req, res) => {
 
         if (result.length === 0) {
             poolConnection.close();
-            return res.status(404).json({ success: false, message: "No notifications found for this user" });
+            return res.status(404).json({ success: true, message: "No notifications found for this user",data: [] });
         }
         const notifications = result
         poolConnection.close();
