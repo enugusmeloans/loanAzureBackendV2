@@ -20,7 +20,6 @@ const router = express.Router();
 const config = process.env.NODE_ENV === "production" ? process.env.DATABASE_URI : process.env.DATABASE_PUBLIC_URI;
 //------------------------------------------------------------------------
 // Functions
-// Function to create the additional tables
 
 
 //--------------------------------------------------------------
@@ -200,7 +199,7 @@ router.get('/is-admin', async (req, res) => {
         // Query to check if the user is an admin
         const [result] = await poolConnection.execute('SELECT adminId FROM Users WHERE userId = ?', [userId]);
 
-        poolConnection.close(); // Close the database connection
+        await poolConnection.end(); // Close the database connection
 
         if (result.length === 0) {
             return res.status(404).json({ success: false, message: 'User not found', data: {} }); // Return not found if the user does not exist
@@ -475,9 +474,9 @@ router.post('/submit-application', isAuthenticated, async (req, res) => {
 // Modified /get-all-applications endpoint to handle pagination
 router.post('/get-all-applications',isAdmin, async (req, res) => {
     const { From, To } = req.body; // Extract From and To values from the request body
-
-    if (!From || !To || From < 1 || To < 1) {
-        return res.status(400).json({ success: false, message: 'Invalid From or To values', data: {} }); // Validate input values
+    // Validate input values
+    if (!Number.isInteger(From) || !Number.isInteger(To) || From < 1 || To < 1 || To < From) {
+        return res.status(400).json({ success: false, message: 'Invalid From or To values', data: {} });
     }
 
     try {
@@ -485,13 +484,22 @@ router.post('/get-all-applications',isAdmin, async (req, res) => {
 
         // Query to get the total number of applications
         const [totalResult] = await poolConnection.execute('SELECT COUNT(*) AS totalApplications FROM Applications');
+        console.log("Query to get total applications executed successfully");
         const totalApplications = totalResult[0].totalApplications;
 
         if (From > totalApplications) {
-            return res.status(400).json({ success: false, message: 'From value exceeds total number of applications', data: { totalApplications:totalApplications } }); // Validate From value
+            return res.status(400).json({ success: false, message: 'From value exceeds total number of applications', data: { totalApplications:totalApplications } }); // Validate start value
         }
 
-        const adjustedTo = Math.min(To, totalApplications); // Adjust To value if it exceeds total applications
+        const adjustedTo = Math.min(end, totalApplications); // Adjust end value if it exceeds total applications
+        console.log("Adjusted To value:", adjustedTo);
+
+        const offset = From - 1; // Calculate the starting index for pagination
+        const limit = adjustedTo - From + 1; // Calculate the number of records to fetch
+        console.log("offset:", offset, "limit:", limit);
+
+        console.log("offset:", offset, typeof offset);
+        console.log("limit:", limit, typeof limit);
 
         // Query to fetch applications within the specified range
         const [result] = await poolConnection.execute(`
@@ -505,9 +513,10 @@ router.post('/get-all-applications',isAdmin, async (req, res) => {
                 INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
                 INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
                 ORDER BY Applications.applicationId
-                LIMIT ?, ?
-            `, [From - 1, adjustedTo - From + 1]);
-
+                LIMIT ${offset}, ${limit}
+            `);
+        console.log("Query to fetch applications executed successfully");
+        console.log("Fetched applications:", result);
         poolConnection.close(); // Close the database connection
 
         res.status(200).json({
@@ -516,7 +525,7 @@ router.post('/get-all-applications',isAdmin, async (req, res) => {
             data: { applications: result, totalApplications: totalApplications, From: From, To: adjustedTo } // Return the applications and total count
         }); // Return the applications
     } catch (err) {
-        console.error('Error fetching applications:', err.message); // Log any errors
+        console.error('Error fetching applications:', err); // Log any errors
         res.status(500).json({ success: false, message: 'Internal server error', data: {} }); // Return internal server error
     }
 });
@@ -741,166 +750,225 @@ router.post('/reject-application', isAdmin, async (req, res) => {
 
 // Endpoint to resubmit an application
 router.post('/resubmit-application', async (req, res) => {
+    let poolConnection;
     try {
-        const { userEmail,applicationId, personalInfo, businessInfo, financeInfo, challengeInfo, loanInfo, regulatoryInfo } = req.body;
-        console.log("Resubmit Application Body: ",req.body)
-//-----------------------------------------
-        // Get userId from userEmail
-        const poolConnection = await mysql.createConnection(config);
-        const [userResult] = await poolConnection.execute('SELECT userId FROM Users WHERE userEmail = ?', [userEmail]);
-    
-            if (userResult.length === 0) {
-                poolConnection.close(); 
-                return res.status(404).json({ success: false, message: 'User not found', data: {} });
-            }
+        const {
+            userEmail,
+            applicationId,
+            personalInfo,
+            businessInfo,
+            financeInfo,
+            challengeInfo,
+            loanInfo,
+            regulatoryInfo
+        } = req.body;
 
-            const userId = userResult[0].userId;
+        console.log("Resubmit Application Body:", req.body);
 
-                // Fetch user details from ExtraUserDetails table
-                const [extraDetailsResult] = await poolConnection.execute(`
-                    SELECT firstName, lastName, otherName, dob, gender, LGA, contactEmail AS email, phoneNumber AS phone
-                    FROM ExtraUserDetails
-                    WHERE userId = ?
-                `, [userId]);
+        poolConnection = await mysql.createConnection(config);
 
-                // Check if all required fields are not empty or false
-                const requiredFields = ['firstName', 'lastName', 'otherName', 'dob', 'gender', 'LGA', 'email', 'phone'];
-                const extraDetails = extraDetailsResult[0];
+        // Step 1: Get userId
+        const [userResult] = await poolConnection.execute(
+            'SELECT userId FROM Users WHERE userEmail = ?',
+            [userEmail]
+        );
 
-                if (!extraDetails || requiredFields.some(field => !extraDetails[field] || !String(extraDetails[field]).trim())) {
-                    poolConnection.close();
-                    return res.status(400).json({ success: false, message: 'Please complete your profile first with valid data', data: {} });
-                }
-    
-            if (extraDetailsResult.length === 0) {
-                poolConnection.close();
-                return res.status(400).json({ success: false, message: 'Please complete your profile first', data: {} });
-            }
-    
-            const personalExtraInfo = extraDetailsResult[0];
-//--------------------------------------------
-        // Validate applicationId
+        if (userResult.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found', data: {} });
+        }
+
+        const userId = userResult[0].userId;
+
+        // Step 2: Check if user has completed profile
+        const [extraDetailsResult] = await poolConnection.execute(`
+            SELECT firstName, lastName, otherName, dob, gender, LGA, contactEmail AS email, phoneNumber AS phone
+            FROM ExtraUserDetails
+            WHERE userId = ?
+        `, [userId]);
+
+        const extraDetails = extraDetailsResult[0];
+        const requiredFields = ['firstName', 'lastName', 'otherName', 'dob', 'gender', 'LGA', 'email', 'phone'];
+
+        if (!extraDetails || requiredFields.some(field => !extraDetails[field] || !String(extraDetails[field]).trim())) {
+            return res.status(400).json({ success: false, message: 'Please complete your profile first with valid data', data: {} });
+        }
+
+        // Step 3: Validate applicationId and status
         if (!applicationId) {
-            poolConnection.close();
             return res.status(400).json({ error: "Application ID is required" });
         }
 
-        // const poolConnection = await mysql.createConnection(config);
-
-        // Check the current loanStatus of the application
         const [applicationResult] = await poolConnection.execute(`
-                SELECT loanStatus 
-                FROM Applications 
-                WHERE applicationId = ?
-            `, [applicationId]);
+            SELECT loanStatus 
+            FROM Applications 
+            WHERE applicationId = ?
+        `, [applicationId]);
 
         if (applicationResult.length === 0) {
-            poolConnection.close();
             return res.status(404).json({ success: false, message: "Application not found" });
         }
 
         const { loanStatus } = applicationResult[0];
-
-        // Ensure the application is currently "Resubmit"
         if (loanStatus !== "Resubmit") {
-            poolConnection.close();
             return res.status(400).json({ success: false, message: "Only applications with a 'Resubmit' status can be resubmitted" });
         }
 
-        const transaction = await poolConnection.getTransaction();
-        await transaction.begin();
+        // Step 4: Begin transaction
+        await poolConnection.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        await poolConnection.beginTransaction();
 
-        // Update the Applications table to change the loanStatus to "Accepted1"
-        await transaction.execute(`
+        try {
+            // Step 5: Update application status
+            await poolConnection.execute(`
                 UPDATE Applications 
                 SET loanStatus = ? 
                 WHERE applicationId = ?
             `, ["Accepted1", applicationId]);
 
-        // Update the PersonalInfo table
-        await transaction.execute(`
+            // Step 6: Update PersonalInfo
+            await poolConnection.execute(`
                 UPDATE PersonalInfo 
                 SET fullName = ?, dob = ?, gender = ?, email = ?, 
                     phone = ?, residentAddress = ?, LGA = ?, 
                     state = ?, BVN = ?, NIN = ? 
                 WHERE applicationId = ?
-            `, [`${personalExtraInfo.firstName} ${personalExtraInfo.lastName} ${personalExtraInfo.otherName}`, personalExtraInfo.dob, personalExtraInfo.gender, personalExtraInfo.email, personalExtraInfo.phone, personalInfo.residentAddress, personalExtraInfo.LGA, personalInfo.personalState, personalInfo.BVN, personalInfo.NIN, applicationId]);
+            `, [
+                `${extraDetails.firstName} ${extraDetails.lastName} ${extraDetails.otherName}`,
+                extraDetails.dob,
+                extraDetails.gender,
+                extraDetails.email,
+                extraDetails.phone,
+                personalInfo.residentAddress,
+                extraDetails.LGA,
+                personalInfo.personalState,
+                personalInfo.BVN,
+                personalInfo.NIN,
+                applicationId
+            ]);
 
-        // Update the BusinessInfo table
-        await transaction.execute(`
+            // Step 7: Update BusinessInfo
+            await poolConnection.execute(`
                 UPDATE BusinessInfo 
                 SET businessName = ?, businessAddress = ?, 
                     businessAge = ?, businessType = ?, 
                     businessIndustry = ?, businessLGA = ?, 
                     businessTown = ? 
                 WHERE applicationId = ?
-            `, [businessInfo.businessName, businessInfo.businessAddress, businessInfo.businessAge, businessInfo.businessType, businessInfo.businessIndustry, businessInfo.businessLGA, businessInfo.businessTown, applicationId]);
+            `, [
+                businessInfo.businessName,
+                businessInfo.businessAddress,
+                businessInfo.businessAge,
+                businessInfo.businessType,
+                businessInfo.businessIndustry,
+                businessInfo.businessLGA,
+                businessInfo.businessTown,
+                applicationId
+            ]);
 
-        // Update the FinanceInfo table
-        await transaction.execute(`
+            // Step 8: Update FinanceInfo
+            await poolConnection.execute(`
                 UPDATE FinanceInfo 
                 SET bankAccountQuestion = ?, 
                     digitalPaymentQuestion = ?, 
                     businessFinanceQuestion = ? 
                 WHERE applicationId = ?
-            `, [financeInfo.bankAccountQuestion, financeInfo.digitalPaymentQuestion, financeInfo.businessFinanceQuestion, applicationId]);
+            `, [
+                financeInfo.bankAccountQuestion,
+                financeInfo.digitalPaymentQuestion,
+                financeInfo.businessFinanceQuestion,
+                applicationId
+            ]);
 
-        // Update the ChallengeInfo table
-        await transaction.execute(`
+            // Step 9: Update ChallengeInfo
+            await poolConnection.execute(`
                 UPDATE ChallengeInfo 
                 SET biggestChallengeQuestion = ?, 
                     govtSupportQuestion = ?, 
                     businessGrowthQuestion = ? 
                 WHERE applicationId = ?
-            `, [challengeInfo.biggestChallengeQuestion, challengeInfo.govtSupportQuestion, challengeInfo.businessGrowthQuestion, applicationId]);
+            `, [
+                challengeInfo.biggestChallengeQuestion,
+                challengeInfo.govtSupportQuestion,
+                challengeInfo.businessGrowthQuestion,
+                applicationId
+            ]);
 
-        // Update the LoanInfo table
-        await transaction.execute(`
+            // Step 10: Update LoanInfo
+            await poolConnection.execute(`
                 UPDATE LoanInfo 
                 SET loanBeforeQuestion = ?, 
                     loanHowQuestion = ?, 
                     whyNoLoan = ? 
                 WHERE applicationId = ?
-            `, [loanInfo.loanBeforeQuestion, loanInfo.loanHowQuestion, loanInfo.whyNoLoan, applicationId]);
+            `, [
+                loanInfo.loanBeforeQuestion,
+                loanInfo.loanHowQuestion,
+                loanInfo.whyNoLoan,
+                applicationId
+            ]);
 
-        // Update the RegulatoryInfo table
-        await transaction.execute(`
+            // Step 11: Update RegulatoryInfo
+            await poolConnection.execute(`
                 UPDATE RegulatoryInfo 
                 SET regulatoryChallengeQuestion = ? 
                 WHERE applicationId = ?
-            `, [regulatoryInfo.regulatoryChallengeQuestion, applicationId]);
+            `, [
+                regulatoryInfo.regulatoryChallengeQuestion,
+                applicationId
+            ]);
 
-        await transaction.commit();
+            // Step 12: Commit transaction
+            await poolConnection.commit();
 
-        // Fetch the details of the resubmitted application
+        } catch (updateErr) {
+            console.error("Update error:", updateErr.message);
+            await poolConnection.rollback();
+            return res.status(500).json({ success: false, message: "Error updating application data", data: { error: updateErr.message } });
+        }
+
+        // Step 13: Fetch resubmitted application
         const [applicationSubmittedResult] = await poolConnection.execute(`
-                SELECT 
-                    Applications.applicationId,
-                    Applications.dateSubmitted,
-                    Applications.loanStatus,
-                    BusinessInfo.businessName,
-                    BusinessInfo.businessIndustry,
-                    PersonalInfo.fullName AS applicantName
-                FROM Applications
-                INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
-                INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
-                WHERE Applications.applicationId = ?
-            `, [applicationId]);
+            SELECT 
+                Applications.applicationId,
+                Applications.dateSubmitted,
+                Applications.loanStatus,
+                BusinessInfo.businessName,
+                BusinessInfo.businessIndustry,
+                PersonalInfo.fullName AS applicantName
+            FROM Applications
+            INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            WHERE Applications.applicationId = ?
+        `, [applicationId]);
 
         const applicationSResult = applicationSubmittedResult[0];
 
-        poolConnection.close();
+        await poolConnection.close();
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             message: 'Application resubmitted successfully',
             data: { application: applicationSResult }
         });
+
     } catch (err) {
-        console.error('Error resubmitting application:', err.message);
-        res.status(500).json({ success: false, message: 'Failed to resubmit application', data: { error: err.message } });
+        console.error('Unexpected error:', err.message);
+        if (poolConnection) {
+            try {
+                await poolConnection.rollback();
+            } catch (rollbackErr) {
+                console.error('Rollback failed:', rollbackErr.message);
+            }
+            await poolConnection.close();
+        }
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to resubmit application',
+            data: { error: err.message }
+        });
     }
 });
+
 
 // Endpoint for admin to request resubmission of an application
 router.post('/request-resubmission', isAdmin, async (req, res) => {
@@ -942,11 +1010,14 @@ router.post('/request-resubmission', isAdmin, async (req, res) => {
                 WHERE applicationId = ?
             `, ["Resubmit", applicationId]);
 
-        poolConnection.close();
+        
 
         // Use the applicationId to get the userId
         const [userResult] = await poolConnection.execute('SELECT userId FROM Applications WHERE applicationId = ?', [applicationId]);
         const userId = userResult[0].userId;
+
+        poolConnection.close();
+
         // Send notification to the user about the resubmission request
         await storeNotification("Loan Application Resubmission Requested", userId, `Dear User, your loan application has been marked for resubmission. Please check your email for clarification and proceed to resubmit your application details.`);
 

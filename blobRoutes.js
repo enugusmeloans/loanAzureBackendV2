@@ -1,5 +1,5 @@
 import express from "express";
-import { uploadFile, listFiles, deleteFile, getSignedUrl } from './b2StorageService.js';
+import { uploadFile, listFiles, deleteFile, getSignedUrl, downloadFile } from './b2StorageService.js';
 import mysql from 'mysql2/promise'; // Use mysql2 for Railway
 import jwt from "jsonwebtoken"; // Import JWT for authentication
 import archiver from "archiver"; // Import archiver for zipping files
@@ -9,6 +9,7 @@ import dotenv from "dotenv"; // Import dotenv for environment variables
 dotenv.config(); // Load environment variables from .env file
 import multer from "multer";
 
+const config = process.env.NODE_ENV === "production" ? process.env.DATABASE_URI : process.env.DATABASE_PUBLIC_URI; // Use DATABASE_URI for production and DATABASE_PUBLIC_URI for development
 
 const router = express.Router();
 const storage = multer.memoryStorage(); // Configure multer to store files in memory
@@ -36,7 +37,7 @@ async function isAdmin(req, res, next) {
     return res.status(403).json({ error: "Forbidden" });
   }
   try {
-    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
+    const poolConnection = await mysql.createConnection(config);
     const [rows] = await poolConnection.execute(
       'SELECT * FROM Admins WHERE adminId = ?',
       [req.user.adminId]
@@ -138,7 +139,7 @@ router.post("/upload-documents", upload.fields([
       return res.status(400).json({ success: false, message: "All document images are required" });
     }
 
-    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
+    const poolConnection = await mysql.createConnection(config);
 
     // Check if the application's loanStatus is "Accepted1"
     const [applicationRows] = await poolConnection.execute(
@@ -203,12 +204,18 @@ router.post("/upload-documents", upload.fields([
       // Store notification in the database
       await storeNotification("Documents Uploaded Successfully", userId, "Your Documents have been uploaded. Please await final approval")
 
+      const idCardSignedUrl = idCardUrl ? await getSignedUrl(idCardUrl) : null;
+      const businessCertificateSignedUrl = businessCertificateUrl ? await getSignedUrl(businessCertificateUrl) : null;
+
+      console.log("The signed URLs are:", idCardSignedUrl, businessCertificateSignedUrl);
+
       res.json({
         success: true,
         message: "Documents updated successfully",
         data: {
-          idCardUrl: idCardUrl,
-          businessCertificateUrl: businessCertificateUrl
+          loanStatus: "Pending",
+          idCardUrl: idCardSignedUrl,
+          businessCertificateUrl: businessCertificateSignedUrl
         }
       });
     } else {
@@ -245,14 +252,18 @@ router.post("/upload-documents", upload.fields([
 
       // Send an email notification to the user
       await sendEmail(userId, "Documents Uploaded", "Your documents have been uploaded successfully.");
+      const idCardSignedUrl = idCardUrl ? await getSignedUrl(idCardUrl) : null;
+      const businessCertificateSignedUrl = businessCertificateUrl ? await getSignedUrl(businessCertificateUrl) : null;
+
+      console.log("The signed URLs are:", idCardSignedUrl, businessCertificateSignedUrl);
 
       res.json({
         success: true,
         message: "Documents uploaded and stored successfully",
         data: {
           loanStatus: "Pending",
-          idCardUrl: idCardUrl,
-          businessCertificateUrl: businessCertificateUrl
+          idCardUrl: idCardSignedUrl,
+          businessCertificateUrl: businessCertificateSignedUrl
         }
       });
     }
@@ -268,38 +279,27 @@ router.post("/upload-documents", upload.fields([
 router.get("/application-images/:applicationId", async (req, res) => {
   try {
     const { applicationId } = req.params;
-
-    // Validate applicationId
     if (!applicationId) return res.status(400).json({ success: false, message: "Application ID is required" }); 
-
-    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
-
+    const poolConnection = await mysql.createConnection(config);
     // Fetch the image URLs from the database
     const [rows] = await poolConnection.execute(
       'SELECT IdCardLink, businessCertificateLink FROM UploadDocuments WHERE applicationId = ?',
       [applicationId]
     );
-
     await poolConnection.end();
-
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: "No images found for this application" });
     }
-
     const { IdCardLink, businessCertificateLink } = rows[0];
-
-    // Generate SAS tokens for the image URLs
-    const idCardSasUrl = IdCardLink ? await generateSasUrl(IdCardLink) : null;
-    const businessCertificateSasUrl = businessCertificateLink ? await generateSasUrl(businessCertificateLink) : null;
-
-    console.log("Sassy Urls are: ",idCardSasUrl, businessCertificateSasUrl)
-
+    // Generate signed URLs for the image URLs
+    const idCardSignedUrl = IdCardLink ? await getSignedUrl(IdCardLink) : null;
+    const businessCertificateSignedUrl = businessCertificateLink ? await getSignedUrl(businessCertificateLink) : null;
     res.json({
-        success: true,
+      success: true,
       message: "Application images retrieved successfully",
       data: {
-        idCardUrl: idCardSasUrl,
-        businessCertificateUrl: businessCertificateSasUrl
+        idCardUrl: idCardSignedUrl,
+        businessCertificateUrl: businessCertificateSignedUrl
       }
     });
   } catch (error) {
@@ -318,7 +318,7 @@ router.get("/download-application-images/:applicationId", async (req, res) => {
       return res.status(400).json({ success: false, message: "Application ID is required" });
     }
 
-    const poolConnection = await mysql.createConnection(process.env.DATABASE_URI);
+    const poolConnection = await mysql.createConnection(config);
 
     // Fetch the image URLs from the database
     const [rows] = await poolConnection.execute(
@@ -348,15 +348,21 @@ router.get("/download-application-images/:applicationId", async (req, res) => {
 
     // Pipe the archive to the response
     archive.pipe(res);
+    console.log("idCardLink:", IdCardLink);
+    console.log("businessCertificateLink:", businessCertificateLink);
 
     // Add images to the archive
     if (IdCardLink) {
-      const idCardStream = await downloadFile(IdCardLink);
+      const idCardSignedUrl = await getSignedUrl(IdCardLink);
+      console.log("idCardSignedUrl:", idCardSignedUrl);
+      const idCardStream = await downloadFile(idCardSignedUrl);
       archive.append(idCardStream, { name: "idCard.jpg" });
     }
 
     if (businessCertificateLink) {
-      const businessCertificateStream = await downloadFile(businessCertificateLink);
+      const businessCertificateSignedUrl = await getSignedUrl(businessCertificateLink);
+      console.log("businessCertificateSignedUrl:", businessCertificateSignedUrl);
+      const businessCertificateStream = await downloadFile(businessCertificateSignedUrl);
       archive.append(businessCertificateStream, { name: "businessCertificate.jpg" });
     }
 
