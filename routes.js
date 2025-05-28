@@ -1081,7 +1081,7 @@ router.post('/extra-user-details', async (req, res) => {
         } else {
             // Insert a new record into ExtraUserDetails
             await poolConnection.execute(`
-                INSERT INTO ExtraUserDetails (userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob, profilePicture)
+                INSERT INTO ExtraUserDetails (userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dobDate]);
 
