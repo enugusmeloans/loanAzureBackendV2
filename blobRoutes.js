@@ -165,7 +165,7 @@ router.post("/upload-documents", upload.fields([
     );
 
     if (existingRows.length > 0) {
-      // Delete previous images from Azure Blob Storage
+      // Delete previous images from Storage
       const previousImages = existingRows[0];
       if (previousImages.IdCardLink) await deleteFile(previousImages.IdCardLink.split("/").pop());
       if (previousImages.businessCertificateLink) await deleteFile(previousImages.businessCertificateLink.split("/").pop());
@@ -196,10 +196,22 @@ router.post("/upload-documents", upload.fields([
       }
 
       const { userId } = userRows[0];
+
+      // Get the userEmail using the userId
+      const [userRowwws] = await poolConnection.execute(
+        'SELECT userEmail FROM Users WHERE userId = ?',
+        [userId]
+      );
+      if (userRowwws.length === 0) {
+        await poolConnection.end();
+        return res.status(404).json({ success: false, message: "User not found for the given application" });
+      }
+      const { userEmail } = userRowwws[0];
+
       await poolConnection.end();
 
       // Send an email notification to the user
-      await sendEmail(userId, "Documents Uploaded", "Your documents have been uploaded successfully.");
+      await sendEmail(userEmail, "Documents Uploaded", "Your documents have been uploaded successfully.");
 
       // Store notification in the database
       await storeNotification("Documents Uploaded Successfully", userId, "Your Documents have been uploaded. Please await final approval")
@@ -245,13 +257,25 @@ router.post("/upload-documents", upload.fields([
       }
 
       const { userId } = userRows[0];
+
+      // Get the userEmail using the userId
+      const [userRowwws] = await poolConnection.execute(
+        'SELECT userEmail FROM Users WHERE userId = ?',
+        [userId]
+      );
+      if (userRowwws.length === 0) {
+        await poolConnection.end();
+        return res.status(404).json({ success: false, message: "User not found for the given application" });
+      }
+      const { userEmail } = userRowwws[0];
+
       await poolConnection.end();
 
       // Store notification in the database
       await storeNotification("Documents Uploaded Successfully", userId, "Your Documents have been uploaded. Please await final approval")
 
       // Send an email notification to the user
-      await sendEmail(userId, "Documents Uploaded", "Your documents have been uploaded successfully.");
+      await sendEmail(userEmail, "Documents Uploaded", "Your documents have been uploaded successfully.");
       const idCardSignedUrl = idCardUrl ? await getSignedUrl(idCardUrl) : null;
       const businessCertificateSignedUrl = businessCertificateUrl ? await getSignedUrl(businessCertificateUrl) : null;
 
