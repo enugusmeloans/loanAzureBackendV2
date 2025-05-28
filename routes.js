@@ -1249,8 +1249,10 @@ router.get('/current-user', async (req, res) => {
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const poolConnection = await mysql.createConnection(config);
+        console.log("Getting current user. Connection Created. Now getting user details...", decoded.userId);
 
-        const [result] = await poolConnection.execute('SELECT userId, userName, userEmail, adminId FROM Users WHERE userId = ?', [decoded.userId]);
+        const [result] = await poolConnection.execute(`SELECT userId, userName, userEmail, adminId FROM Users WHERE userId = ${decoded.userId}`);
+        console.log("Result for current user:", result); // Log the result for debugging
 
         poolConnection.close();
 
@@ -1278,6 +1280,7 @@ router.get('/user-applications', async (req, res) => {
         const userId = decoded.userId; // Extract the userId from the decoded token
 
         const poolConnection = await mysql.createConnection(config); // Connect to the database
+        console.log("Fetching user applications for userId:", userId); // Log the userId for debugging
 
         // Query to fetch all applications made by the logged-in user
         const [result] = await poolConnection.execute(`
