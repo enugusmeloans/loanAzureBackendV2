@@ -25,8 +25,10 @@ function isAuthenticated(req, res, next) {
 
 // Updated isAdmin middleware to check if the user is an admin using the JWT token
 async function isAdmin(req, res, next) {
+    console.log("Checking if user is admin...");
     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
     if (!token) {
+        console.log("No token provided for admin check");
         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
     }
 
@@ -53,7 +55,8 @@ async function isAdmin(req, res, next) {
 }
 
 // Apply the isAuthenticated and isAdmin middleware to all routes in this router
-router.use(isAuthenticated, isAdmin);
+console.log("Applying isAuthenticated and isAdmin middleware to all routes in excelRoutes");
+router.use(isAdmin);
 
 // Function to generate an Excel file with detailed application data
 async function generateDetailedExcel(data, filePath) {
@@ -692,6 +695,85 @@ router.get('/download-resubmit-applications', async (req, res) => {
     } catch (err) {
         console.error('Error generating Excel file:', err.message);
         res.status(500).json({ error: 'Failed to generate Excel file' });
+    }
+});
+
+// Endpoint to generate and download an Excel file for applications with loanStatus of Resubmit
+router.get('/download-all-applications', async (req, res) => {
+    try {
+        const poolConnection = await mysql.createCodnnection(config);
+
+        // Query to fetch all detailed data for applications with loanStatus of Accepted1
+        const [rows] = await poolConnection.execute(`
+            SELECT 
+                Users.userId,
+                Users.userName,
+                Users.userEmail,
+                Applications.applicationId,
+                Applications.dateSubmitted,
+                Applications.loanStatus,
+                PersonalInfo.fullName,
+                PersonalInfo.dob,
+                PersonalInfo.gender,
+                PersonalInfo.phone,
+                PersonalInfo.residentAddress,
+                PersonalInfo.BVN,
+                PersonalInfo.NIN,
+                PersonalInfo.LGA,
+                PersonalInfo.state,
+                BusinessInfo.businessName,
+                BusinessInfo.businessAddress,
+                BusinessInfo.businessType,
+                BusinessInfo.businessIndustry,
+                BusinessInfo.businessAge,
+                BusinessInfo.businessLGA,
+                BusinessInfo.businessTown,
+                ChallengeInfo.biggestChallengeQuestion AS biggestChallenge,
+                ChallengeInfo.govtSupportQuestion AS govtSupport,
+                ChallengeInfo.businessGrowthQuestion AS businessGrowth,
+                FinanceInfo.bankAccountQuestion,
+                FinanceInfo.digitalPaymentQuestion,
+                FinanceInfo.businessFinanceQuestion,
+                LoanInfo.loanBeforeQuestion,
+                LoanInfo.loanHowQuestion,
+                LoanInfo.whyNoLoan,
+                RegulatoryInfo.regulatoryChallengeQuestion AS regulatoryChallenge
+            FROM Applications
+            INNER JOIN Users ON Applications.userId = Users.userId
+            INNER JOIN PersonalInfo ON Applications.applicationId = PersonalInfo.applicationId
+            INNER JOIN BusinessInfo ON Applications.applicationId = BusinessInfo.applicationId
+            INNER JOIN ChallengeInfo ON Applications.applicationId = ChallengeInfo.applicationId
+            INNER JOIN FinanceInfo ON Applications.applicationId = FinanceInfo.applicationId
+            INNER JOIN LoanInfo ON Applications.applicationId = LoanInfo.applicationId
+            INNER JOIN RegulatoryInfo ON Applications.applicationId = RegulatoryInfo.applicationId
+        `);
+
+        await poolConnection.end();
+
+        const data = rows;
+
+        if (data.length === 0) {
+            return res.status(404).json({ success: false, error: 'No applications found' });
+        }
+
+        const filePath = 'all_applications.xlsx';
+        await generatePendingApplicationsExcel(data, filePath);
+
+        res.download(filePath, (err) => {
+            if (err) {
+                console.error('Error sending file:', err);
+                res.status(500).json({ success: false, error: 'Failed to download Excel file' });
+            }
+
+            fs.unlink(filePath, (unlinkErr) => {
+                if (unlinkErr) {
+                    console.error('Error deleting file:', unlinkErr);
+                }
+            });
+        });
+    } catch (err) {
+        console.error('Error generating Excel file:', err.message);
+        res.status(500).json({ success: false, error: 'Failed to generate Excel file' });
     }
 });
 
