@@ -1058,9 +1058,11 @@ router.post('/extra-user-details', async (req, res) => {
     console.log("extra user body",req.body)
     try {
         const { userId, firstName, lastName, otherName, gender, phoneNumber, contactEmail, address, LGA, stateOfOrigin, dob } = req.body;
+        console.log("Received request body:", req.body);
 
         // Check if all required fields are provided and valid
         if (!userId || !firstName || !lastName || !otherName || !gender || !phoneNumber || !contactEmail || !address || !LGA || !stateOfOrigin || !dob) {
+            console.log("Missing required fields in request body");
             return res.status(400).json({ success: false, error: "All fields are required", data: { verified: false } });
         }
 
@@ -1071,6 +1073,7 @@ router.post('/extra-user-details', async (req, res) => {
             !String(contactEmail).trim() || !String(address).trim() || !String(LGA).trim() || 
             !String(stateOfOrigin).trim() || !String(dob).trim()
         ) {
+            console.log("One or more fields are empty or false");
             return res.status(400).json({ success: false, error: "Fields cannot be empty or false", data: { verified: false } });
         }
         // Convert dob to a Date object
@@ -1110,6 +1113,7 @@ router.post('/extra-user-details', async (req, res) => {
 
 
         poolConnection.close();
+        console.log("User details updated successfully for userId:", userId);
         res.status(200).json({ success: true, message: "User details updated successfully", data:{ verified: true, userId: userId, firstName: firstName, lastName: lastName, otherName: otherName, dob:dob, phoneNumber: phoneNumber, contactEmail: contactEmail, address: address, LGA: LGA, stateOfOrigin: stateOfOrigin }});
     } catch (err) {
         console.error("Error updating user details:", err);
@@ -1259,8 +1263,10 @@ router.get('/get-user-details/:userId', async (req, res) => {
 
 // Endpoint to get the current logged-in user
 router.get('/current-user', async (req, res) => {
+    console.log("Fetching current user details...");
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
+        console.log("No token provided in request headers");
         return res.status(401).json({ success:false, message: 'Unauthorized' });
     }
 
@@ -1272,6 +1278,7 @@ router.get('/current-user', async (req, res) => {
         // Sanitize decoded.userId
         if (!Number.isInteger(decoded.userId) || decoded.userId <= 0) {
             await poolConnection.close();
+            console.log("Invalid userId:", decoded.userId);
             return res.status(400).json({ success: false, message: 'Invalid user ID' });
         }
 
@@ -1281,10 +1288,12 @@ router.get('/current-user', async (req, res) => {
         poolConnection.close();
 
         if (result.length === 0) {
+            console.log("User not found for userId:", decoded.userId);
             return res.status(404).json({ success: false, message: 'User not found' }); 
         }
 
         const user = result[0];
+        console.log("Current user details fetched successfully:", user);
         res.status(200).json({ success: true, message: 'User details fetched successfully', data: user });
     } catch (err) {
         console.error('Error fetching user details:', err.message);
@@ -1294,8 +1303,10 @@ router.get('/current-user', async (req, res) => {
 
 // Endpoint to get all applications made by the logged-in user
 router.get('/user-applications', async (req, res) => {
+    console.log("Fetching user applications...");
     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
     if (!token) {
+        console.log("No token provided in request headers");
         return res.status(401).json({ success: false, message: 'Unauthorized', data: {} }); // Return unauthorized if no token is provided
     }
 
@@ -1326,6 +1337,7 @@ router.get('/user-applications', async (req, res) => {
         poolConnection.close(); // Close the database connection
 
         if (result.length === 0) {
+            console.log("No applications found for userId:", userId); // Log if no applications are found
             return res.status(404).json({ success: true, message: 'No applications found for the user', data: {applications:[]} }); // Return not found if no applications exist
         }
 
@@ -1377,6 +1389,11 @@ router.get('/application-percentages', async (req, res) => {
         const rejectedPercentage = (stats.rejectedApplications / stats.totalApplications) * 100;
         const pendingPercentage = (stats.pendingApplications / stats.totalApplications) * 100;
 
+        console.log("Application percentages calculated:", {
+            approvedPercentage,
+            rejectedPercentage,
+            pendingPercentage
+        }); // Log the calculated percentages for debugging
         res.status(200).json({
             success: true,
             message: 'Application percentages retrieved successfully',
@@ -1399,6 +1416,7 @@ router.get('/total-applications-per-month/:year', async (req, res) => {
 
         // Validate year
         if (!year || isNaN(year)) {
+            console.log("Invalid year provided:", year);
             return res.status(400).json({ success: false, message: "Invalid year provided" });
         }
 
@@ -1520,10 +1538,12 @@ router.get('/get-notifications/:userId', async (req, res) => {
 
         if (result.length === 0) {
             poolConnection.close();
+            console.log("No notifications found for userId:", userId);
             return res.status(404).json({ success: true, message: "No notifications found for this user",data: [] });
         }
         const notifications = result
         poolConnection.close();
+        console.log("Notifications retrieved successfully for userId:", userId);
         res.status(200).json({ success: true, message: "Notifications retrieved successfully", data: notifications });
     } catch (error) {
         console.error("Error fetching notifications:", error.message);
