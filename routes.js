@@ -663,9 +663,9 @@ router.post('/accept-application', isAdmin, async (req, res) => {
         const { loanStatus, userEmail } = applicationResult[0];
 
         // Ensure the application is currently "Pending"
-        if (loanStatus !== "Pending" || loanStatus !== "Rejected2" ) {
+        if (loanStatus !== "Pending" && loanStatus !== "Rejected2" ) {
             poolConnection.close();
-            console.log("Application is not in 'Pending' status for ID:", applicationId, "loanStatus:" , loanStatus);
+            console.log("Application is not in 'Pending' or 'Rejected2' status for ID:", applicationId, "loanStatus:" , loanStatus);
             return res.status(400).json({ success: false, message: "Only applications with a 'Pending' status can be accepted" });
         }
 
@@ -725,9 +725,9 @@ router.post('/reject-application', isAdmin, async (req, res) => {
         const { loanStatus, userEmail } = applicationResult[0];
 
         // Ensure the application is currently "Pending"
-        if (loanStatus !== "Pending" || loanStatus !== "Accepted2" ) {
+        if (loanStatus !== "Pending" && loanStatus !== "Accepted2" ) {
             poolConnection.close();
-            console.log("Application is not in 'Pending' status for ID:", applicationId, "loanStatus:" , loanStatus);
+            console.log("Application is not in 'Pending' or 'Accepted2' status for ID:", applicationId, "loanStatus:" , loanStatus);
             return res.status(400).json({ error: "Only applications with a 'Pending' status can be rejected" });
         }
 
