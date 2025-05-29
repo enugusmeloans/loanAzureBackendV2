@@ -636,10 +636,12 @@ router.get('/get-application-details/:applicationId',isAuthenticated, async (req
 router.post('/accept-application', isAdmin, async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
+        console.log("Accept Application Body:", req.body);
 
-        // Validate applicationId
-        if (!applicationId) {
-            return res.status(400).json({ error: "Application ID is required" });
+        // Validate applicationId and emailBody
+        if (!applicationId || !emailBody) {
+            console.log("Application ID or email body is missing");
+            return res.status(400).json({ error: "Application id and emailBody is required" });
         }
 
         const poolConnection = await mysql.createConnection(config);
@@ -654,6 +656,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
 
         if (applicationResult.length === 0) {
             poolConnection.close();
+            console.log("Application not found for ID:", applicationId);
             return res.status(404).json({ success: false, message: "Application not found" });
         }
 
@@ -662,6 +665,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending" || loanStatus !== "Rejected2" ) {
             poolConnection.close();
+            console.log("Application is not in 'Pending' status for ID:", applicationId);
             return res.status(400).json({ success: false, message: "Only applications with a 'Pending' status can be accepted" });
         }
 
@@ -682,7 +686,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
 
         // Send email to the user
         await sendEmail(userEmail, "Application Accepted", emailBody);
-
+        console.log("Application accepted successfully and email sent to:", userEmail);
         res.status(200).json({ success: true, message: "Application accepted successfully and email sent", data: { applicationId:applicationId, loanStatus: "Accepted2"} });
     } catch (err) {
         console.error("Error accepting application:", err.message);
@@ -694,10 +698,12 @@ router.post('/accept-application', isAdmin, async (req, res) => {
 router.post('/reject-application', isAdmin, async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
+        console.log("Reject Application Body:", req.body);
 
-        // Validate applicationId
-        if (!applicationId) {
-            return res.status(400).json({ error: "Application ID is required" });
+        // Validate applicationId and emailBody
+        if (!applicationId || !emailBody) {
+            console.log("Application ID or email body is missing");
+            return res.status(400).json ({ error: "Application ID and email body are required" });
         }
 
         const poolConnection = await mysql.createConnection(config);
@@ -712,6 +718,7 @@ router.post('/reject-application', isAdmin, async (req, res) => {
 
         if (applicationResult.length === 0) {
             poolConnection.close();
+            console.log("Application not found for ID:", applicationId);
             return res.status(404).json({ error: "Application not found" });
         }
 
@@ -720,6 +727,7 @@ router.post('/reject-application', isAdmin, async (req, res) => {
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending" || loanStatus !== "Accepted2" ) {
             poolConnection.close();
+            console.log("Application is not in 'Pending' status for ID:", applicationId);
             return res.status(400).json({ error: "Only applications with a 'Pending' status can be rejected" });
         }
 
@@ -774,6 +782,7 @@ router.post('/resubmit-application', async (req, res) => {
         );
 
         if (userResult.length === 0) {
+            console.log("User not found for email:", userEmail);
             return res.status(404).json({ success: false, message: 'User not found', data: {} });
         }
 
@@ -790,11 +799,13 @@ router.post('/resubmit-application', async (req, res) => {
         const requiredFields = ['firstName', 'lastName', 'otherName', 'dob', 'gender', 'LGA', 'email', 'phone'];
 
         if (!extraDetails || requiredFields.some(field => !extraDetails[field] || !String(extraDetails[field]).trim())) {
+            console.log("Incomplete profile for user:", userId);
             return res.status(400).json({ success: false, message: 'Please complete your profile first with valid data', data: {} });
         }
 
         // Step 3: Validate applicationId and status
         if (!applicationId) {
+            console.log("Application ID is missing");
             return res.status(400).json({ error: "Application ID is required" });
         }
 
@@ -805,11 +816,13 @@ router.post('/resubmit-application', async (req, res) => {
         `, [applicationId]);
 
         if (applicationResult.length === 0) {
+            console.log("Application not found for ID:", applicationId);
             return res.status(404).json({ success: false, message: "Application not found" });
         }
 
         const { loanStatus } = applicationResult[0];
         if (loanStatus !== "Resubmit") {
+            console.log("Application is not in 'Resubmit' status for ID:", applicationId);
             return res.status(400).json({ success: false, message: "Only applications with a 'Resubmit' status can be resubmitted" });
         }
 
@@ -944,7 +957,7 @@ router.post('/resubmit-application', async (req, res) => {
         const applicationSResult = applicationSubmittedResult[0];
 
         await poolConnection.close();
-
+        console.log("Application resubmitted successfully for ID:", applicationId);
         return res.status(200).json({
             success: true,
             message: 'Application resubmitted successfully',
@@ -974,9 +987,11 @@ router.post('/resubmit-application', async (req, res) => {
 router.post('/request-resubmission', isAdmin, async (req, res) => {
     try {
         const { applicationId, emailBody } = req.body;
+        console.log("Request Resubmission Body:", req.body);
 
         // Validate applicationId
         if (!applicationId) {
+            console.log("Application ID is missing");
             return res.status(400).json({ success: false, error: "Application ID is required" });
         }
 
@@ -992,14 +1007,17 @@ router.post('/request-resubmission', isAdmin, async (req, res) => {
 
         if (applicationResult.length === 0) {
             poolConnection.close();
+            console.log("Application not found for ID:", applicationId);
             return res.status(404).json({ success: false, error: "Application not found" });
         }
 
         const { loanStatus, userEmail } = applicationResult[0];
+        console.log("Current loanStatus:", loanStatus);
 
         // Ensure the application is not already in "Resubmit" status
         if (loanStatus === "Resubmit") {
             poolConnection.close();
+            console.log("Application is already in 'Resubmit' status for ID:", applicationId);
             return res.status(400).json({ success: false, error: "Application is already in 'Resubmit' status" });
         }
 
@@ -1250,6 +1268,12 @@ router.get('/current-user', async (req, res) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const poolConnection = await mysql.createConnection(config);
         console.log("Getting current user. Connection Created. Now getting user details...", decoded.userId);
+
+        // Sanitize decoded.userId
+        if (!Number.isInteger(decoded.userId) || decoded.userId <= 0) {
+            await poolConnection.close();
+            return res.status(400).json({ success: false, message: 'Invalid user ID' });
+        }
 
         const [result] = await poolConnection.execute(`SELECT userId, userName, userEmail, adminId FROM Users WHERE userId = ${decoded.userId}`);
         console.log("Result for current user:", result); // Log the result for debugging
