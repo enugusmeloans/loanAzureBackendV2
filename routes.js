@@ -665,7 +665,7 @@ router.post('/accept-application', isAdmin, async (req, res) => {
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending" || loanStatus !== "Rejected2" ) {
             poolConnection.close();
-            console.log("Application is not in 'Pending' status for ID:", applicationId);
+            console.log("Application is not in 'Pending' status for ID:", applicationId, "loanStatus:" , loanStatus);
             return res.status(400).json({ success: false, message: "Only applications with a 'Pending' status can be accepted" });
         }
 
@@ -727,7 +727,7 @@ router.post('/reject-application', isAdmin, async (req, res) => {
         // Ensure the application is currently "Pending"
         if (loanStatus !== "Pending" || loanStatus !== "Accepted2" ) {
             poolConnection.close();
-            console.log("Application is not in 'Pending' status for ID:", applicationId);
+            console.log("Application is not in 'Pending' status for ID:", applicationId, "loanStatus:" , loanStatus);
             return res.status(400).json({ error: "Only applications with a 'Pending' status can be rejected" });
         }
 
@@ -1017,7 +1017,7 @@ router.post('/request-resubmission', isAdmin, async (req, res) => {
         // Ensure the application is not already in "Resubmit" status
         if (loanStatus === "Resubmit") {
             poolConnection.close();
-            console.log("Application is already in 'Resubmit' status for ID:", applicationId);
+            console.log("Application is already in 'Resubmit' status for ID:", applicationId, "loanStatus:" , loanStatus);
             return res.status(400).json({ success: false, error: "Application is already in 'Resubmit' status" });
         }
 
