@@ -676,11 +676,12 @@ router.post('/accept-application', isAdmin, async (req, res) => {
                 WHERE applicationId = ?
             `, ["Accepted2", applicationId]);
 
-        poolConnection.close();
+        
         
         // Use the applicationId to get the userId
         const [userResult] = await poolConnection.execute('SELECT userId FROM Applications WHERE applicationId = ?', [applicationId]);
         const userId = userResult[0].userId;
+        poolConnection.close();
         // Send notification to the user about the acceptance
         await storeNotification("Loan Application Accepted", userId, `Dear User, your loan application has been accepted. Please check your email for further steps.`);
 
@@ -738,11 +739,12 @@ router.post('/reject-application', isAdmin, async (req, res) => {
                 WHERE applicationId = ?
             `, ["Rejected2", applicationId]);
 
-        poolConnection.close();
+        
 
         // Use the applicationId to get the userId
         const [userResult] = await poolConnection.execute('SELECT userId FROM Applications WHERE applicationId = ?', [applicationId]);
         const userId = userResult[0].userId;
+        poolConnection.close();
         // Send notification to the user about the rejection
         await storeNotification("Loan Application Rejected", userId, `Dear User, your loan application has been rejected. Please check your email for further details.`);
 
