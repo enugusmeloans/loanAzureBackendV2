@@ -3,6 +3,7 @@ import fs from 'fs';
 import express from 'express';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise'; // Use mysql2 for promise-based queries
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 

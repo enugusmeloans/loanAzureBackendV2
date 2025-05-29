@@ -3,6 +3,7 @@ import fs from 'fs';
 import express from 'express';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -11,6 +12,8 @@ const config = process.env.NODE_ENV === "production" ? process.env.DATABASE_URI 
 
 // Middleware to check if user is authenticated using JWT
 function isAuthenticated(req, res, next) {
+    console.log("Checking if user is authenticated...");
+    // console.log("Request Headers", req.headers)
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -19,6 +22,7 @@ function isAuthenticated(req, res, next) {
         req.user = decoded;
         next();
     } catch (err) {
+        console.error('JWT verification error:', err.message);
         res.status(401).json({ error: 'Invalid token' });
     }
 }
@@ -26,6 +30,7 @@ function isAuthenticated(req, res, next) {
 // Updated isAdmin middleware to check if the user is an admin using the JWT token
 async function isAdmin(req, res, next) {
     console.log("Checking if user is admin...");
+    // console.log("Request Headers", req.headers)
     const token = req.headers.authorization?.split(' ')[1]; // Extract the JWT token from the Authorization header
     if (!token) {
         console.log("No token provided for admin check");
@@ -56,6 +61,7 @@ async function isAdmin(req, res, next) {
 
 // Apply the isAuthenticated and isAdmin middleware to all routes in this router
 console.log("Applying isAuthenticated and isAdmin middleware to all routes in excelRoutes");
+router.use(isAuthenticated);
 router.use(isAdmin);
 
 // Function to generate an Excel file with detailed application data
@@ -701,7 +707,7 @@ router.get('/download-resubmit-applications', async (req, res) => {
 // Endpoint to generate and download an Excel file for applications with loanStatus of Resubmit
 router.get('/download-all-applications', async (req, res) => {
     try {
-        const poolConnection = await mysql.createCodnnection(config);
+        const poolConnection = await mysql.createConnection(config);
 
         // Query to fetch all detailed data for applications with loanStatus of Accepted1
         const [rows] = await poolConnection.execute(`
